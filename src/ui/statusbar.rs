@@ -4,7 +4,9 @@ use crate::git::GitStatus;
 pub struct StatusBar {}
 
 impl StatusBar {
-    pub fn new() -> Self { Self {} }
+    pub fn new() -> Self {
+        Self {}
+    }
 
     pub fn show(&self, ui: &mut egui::Ui, editor: &Editor, git: &GitStatus) {
         let bg = egui::Color32::from_rgb(0, 122, 204);
@@ -18,7 +20,8 @@ impl StatusBar {
                 ui.separator();
 
                 if let Some(path) = &editor.current_path {
-                    let name = path.file_name()
+                    let name = path
+                        .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
                     let modified = if editor.is_modified { " ●" } else { "" };
@@ -29,9 +32,7 @@ impl StatusBar {
                     );
                     ui.separator();
 
-                    let ext = path.extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("txt");
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
                     ui.label(
                         egui::RichText::new(ext.to_uppercase())
                             .color(egui::Color32::WHITE)

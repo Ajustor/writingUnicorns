@@ -1,40 +1,48 @@
+use crossbeam_channel::{unbounded, Receiver, Sender};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
-use crossbeam_channel::{Receiver, Sender, unbounded};
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use vte::{Params, Parser, Perform};
 
 #[derive(Clone)]
 struct Span {
     text: String,
-    fg:   egui::Color32,
+    fg: egui::Color32,
 }
 
 const DEFAULT_FG: egui::Color32 = egui::Color32::from_rgb(212, 212, 212);
 
 struct AnsiPerformer {
-    spans:       Vec<Span>,
-    current_fg:  egui::Color32,
+    spans: Vec<Span>,
+    current_fg: egui::Color32,
     current_buf: String,
 }
 
 impl AnsiPerformer {
     fn new() -> Self {
         Self {
-            spans: vec![Span { text: String::new(), fg: DEFAULT_FG }],
+            spans: vec![Span {
+                text: String::new(),
+                fg: DEFAULT_FG,
+            }],
             current_fg: DEFAULT_FG,
             current_buf: String::new(),
         }
     }
 
     fn push_text(&mut self, text: &str) {
-        if text.is_empty() { return; }
+        if text.is_empty() {
+            return;
+        }
         if let Some(last) = self.spans.last_mut() {
             if last.fg == self.current_fg {
                 last.text.push_str(text);
                 return;
             }
         }
-        self.spans.push(Span { text: text.to_string(), fg: self.current_fg });
+        self.spans.push(Span {
+            text: text.to_string(),
+            fg: self.current_fg,
+        });
     }
 
     fn flush_buf(&mut self) {
@@ -44,38 +52,45 @@ impl AnsiPerformer {
 
     fn set_color(&mut self, code: u16) {
         self.current_fg = match code {
-            0  => DEFAULT_FG,
-            1  => egui::Color32::WHITE,
-            30 => egui::Color32::from_rgb(  0,   0,   0),
-            31 => egui::Color32::from_rgb(205,  49,  49),
-            32 => egui::Color32::from_rgb( 13, 188, 121),
-            33 => egui::Color32::from_rgb(229, 229,  16),
-            34 => egui::Color32::from_rgb( 36, 114, 200),
-            35 => egui::Color32::from_rgb(188,  63, 188),
-            36 => egui::Color32::from_rgb( 17, 168, 205),
+            0 => DEFAULT_FG,
+            1 => egui::Color32::WHITE,
+            30 => egui::Color32::from_rgb(0, 0, 0),
+            31 => egui::Color32::from_rgb(205, 49, 49),
+            32 => egui::Color32::from_rgb(13, 188, 121),
+            33 => egui::Color32::from_rgb(229, 229, 16),
+            34 => egui::Color32::from_rgb(36, 114, 200),
+            35 => egui::Color32::from_rgb(188, 63, 188),
+            36 => egui::Color32::from_rgb(17, 168, 205),
             37 => egui::Color32::from_rgb(229, 229, 229),
             90 => egui::Color32::from_rgb(102, 102, 102),
-            91 => egui::Color32::from_rgb(241,  76,  76),
-            92 => egui::Color32::from_rgb( 35, 209, 139),
-            93 => egui::Color32::from_rgb(245, 245,  67),
-            94 => egui::Color32::from_rgb( 59, 142, 234),
+            91 => egui::Color32::from_rgb(241, 76, 76),
+            92 => egui::Color32::from_rgb(35, 209, 139),
+            93 => egui::Color32::from_rgb(245, 245, 67),
+            94 => egui::Color32::from_rgb(59, 142, 234),
             95 => egui::Color32::from_rgb(214, 112, 214),
-            96 => egui::Color32::from_rgb( 41, 184, 219),
+            96 => egui::Color32::from_rgb(41, 184, 219),
             97 => egui::Color32::WHITE,
-            _  => return,
+            _ => return,
         };
     }
 }
 
 impl Perform for AnsiPerformer {
-    fn print(&mut self, c: char) { self.current_buf.push(c); }
+    fn print(&mut self, c: char) {
+        self.current_buf.push(c);
+    }
 
     fn execute(&mut self, byte: u8) {
         match byte {
-            b'\n'   => { self.current_buf.push('\n'); self.flush_buf(); }
-            b'\r'   => {}
-            b'\x08' => { self.current_buf.pop(); }
-            _       => {}
+            b'\n' => {
+                self.current_buf.push('\n');
+                self.flush_buf();
+            }
+            b'\r' => {}
+            b'\x08' => {
+                self.current_buf.pop();
+            }
+            _ => {}
         }
     }
 
@@ -83,7 +98,9 @@ impl Perform for AnsiPerformer {
         if action == 'm' {
             self.flush_buf();
             for param in params.iter() {
-                if !param.is_empty() { self.set_color(param[0]); }
+                if !param.is_empty() {
+                    self.set_color(param[0]);
+                }
             }
         }
     }
@@ -97,12 +114,12 @@ impl Perform for AnsiPerformer {
 
 pub struct Terminal {
     pub input_buf: String,
-    spans:         Vec<Span>,
-    rx:            Option<Receiver<Vec<u8>>>,
-    writer:        Option<Box<dyn Write + Send>>,
+    spans: Vec<Span>,
+    rx: Option<Receiver<Vec<u8>>>,
+    writer: Option<Box<dyn Write + Send>>,
     parser: Parser,
-    performer:     AnsiPerformer,
-    _child:        Option<Box<dyn portable_pty::Child + Send + Sync>>,
+    performer: AnsiPerformer,
+    _child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
 }
 
 impl Terminal {
@@ -122,16 +139,22 @@ impl Terminal {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn spawn_shell() -> (
         Option<Receiver<Vec<u8>>>,
         Option<Box<dyn Write + Send>>,
         Option<Box<dyn portable_pty::Child + Send + Sync>>,
     ) {
         let pty_system = native_pty_system();
-        let size = PtySize { rows: 24, cols: 200, pixel_width: 0, pixel_height: 0 };
+        let size = PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
 
         let pair = match pty_system.openpty(size) {
-            Ok(p)  => p,
+            Ok(p) => p,
             Err(_) => return (None, None, None),
         };
 
@@ -145,16 +168,16 @@ impl Terminal {
         cmd.env("TERM", "xterm-256color");
 
         let child = match pair.slave.spawn_command(cmd) {
-            Ok(c)  => c,
+            Ok(c) => c,
             Err(_) => return (None, None, None),
         };
 
         let reader = match pair.master.try_clone_reader() {
-            Ok(r)  => r,
+            Ok(r) => r,
             Err(_) => return (None, None, None),
         };
         let writer = match pair.master.take_writer() {
-            Ok(w)  => w,
+            Ok(w) => w,
             Err(_) => return (None, None, None),
         };
 
@@ -165,7 +188,11 @@ impl Terminal {
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => { if tx.send(buf[..n].to_vec()).is_err() { break; } }
+                    Ok(n) => {
+                        if tx.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
                 }
             }
         });

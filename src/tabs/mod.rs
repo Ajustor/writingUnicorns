@@ -29,12 +29,18 @@ impl TabManager {
             self.active_tab = Some(id);
             return id;
         }
-        let title = path.file_name()
+        let title = path
+            .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "untitled".to_string());
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.push(Tab { id, path, title, is_modified: false });
+        self.tabs.push(Tab {
+            id,
+            path,
+            title,
+            is_modified: false,
+        });
         self.active_tab = Some(id);
         id
     }
@@ -44,7 +50,12 @@ impl TabManager {
         self.next_id += 1;
         let title = format!("untitled-{}", id + 1);
         let path = PathBuf::from(format!("untitled-{}", id + 1));
-        self.tabs.push(Tab { id, path, title, is_modified: true });
+        self.tabs.push(Tab {
+            id,
+            path,
+            title,
+            is_modified: true,
+        });
         self.active_tab = Some(id);
         id
     }
@@ -61,7 +72,9 @@ impl TabManager {
         let mut to_close: Option<usize> = None;
         let active_tab = self.active_tab;
 
-        let tabs_data: Vec<(usize, PathBuf, String, bool)> = self.tabs.iter()
+        let tabs_data: Vec<(usize, PathBuf, String, bool)> = self
+            .tabs
+            .iter()
             .map(|t| (t.id, t.path.clone(), t.title.clone(), t.is_modified))
             .collect();
 
@@ -80,12 +93,11 @@ impl TabManager {
                             egui::RichText::new(format!("● {}", tab_title))
                                 .color(egui::Color32::from_rgb(255, 180, 50))
                         } else {
-                            egui::RichText::new(tab_title.as_str())
-                                .color(if is_active {
-                                    egui::Color32::WHITE
-                                } else {
-                                    egui::Color32::from_rgb(160, 160, 160)
-                                })
+                            egui::RichText::new(tab_title.as_str()).color(if is_active {
+                                egui::Color32::WHITE
+                            } else {
+                                egui::Color32::from_rgb(160, 160, 160)
+                            })
                         };
                         if ui.selectable_label(is_active, tab_label).clicked() {
                             to_open = Some(tab_path.clone());

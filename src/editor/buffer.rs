@@ -1,22 +1,32 @@
 use ropey::Rope;
 
 pub struct Buffer {
-    rope:    Rope,
+    rope: Rope,
     history: Vec<Rope>,
-    future:  Vec<Rope>,
+    future: Vec<Rope>,
+}
+
+impl std::fmt::Display for Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.rope)
+    }
 }
 
 impl Buffer {
     pub fn new() -> Self {
-        Self { rope: Rope::from_str(""), history: vec![], future: vec![] }
+        Self {
+            rope: Rope::from_str(""),
+            history: vec![],
+            future: vec![],
+        }
     }
 
     pub fn from_str(s: &str) -> Self {
-        Self { rope: Rope::from_str(s), history: vec![], future: vec![] }
-    }
-
-    pub fn to_string(&self) -> String {
-        self.rope.to_string()
+        Self {
+            rope: Rope::from_str(s),
+            history: vec![],
+            future: vec![],
+        }
     }
 
     pub fn num_lines(&self) -> usize {
@@ -24,7 +34,9 @@ impl Buffer {
     }
 
     pub fn line(&self, idx: usize) -> String {
-        if idx >= self.rope.len_lines() { return String::new(); }
+        if idx >= self.rope.len_lines() {
+            return String::new();
+        }
         let line = self.rope.line(idx);
         let s: String = line.chars().collect();
         s.trim_end_matches('\n').trim_end_matches('\r').to_string()
@@ -35,14 +47,18 @@ impl Buffer {
     }
 
     pub fn char_index(&self, row: usize, col: usize) -> usize {
-        let line_start = self.rope.line_to_char(row.min(self.rope.len_lines().saturating_sub(1)));
+        let line_start = self
+            .rope
+            .line_to_char(row.min(self.rope.len_lines().saturating_sub(1)));
         line_start + col
     }
 
     fn checkpoint(&mut self) {
         self.history.push(self.rope.clone());
         self.future.clear();
-        if self.history.len() > 200 { self.history.remove(0); }
+        if self.history.len() > 200 {
+            self.history.remove(0);
+        }
     }
 
     pub fn undo(&mut self) -> bool {
@@ -50,7 +66,9 @@ impl Buffer {
             self.future.push(self.rope.clone());
             self.rope = prev;
             true
-        } else { false }
+        } else {
+            false
+        }
     }
 
     pub fn redo(&mut self) -> bool {
@@ -58,7 +76,9 @@ impl Buffer {
             self.history.push(self.rope.clone());
             self.rope = next;
             true
-        } else { false }
+        } else {
+            false
+        }
     }
 
     pub fn insert_char(&mut self, row: usize, col: usize, ch: char) {
@@ -85,12 +105,16 @@ impl Buffer {
 
     pub fn join_lines(&mut self, row: usize) {
         self.checkpoint();
-        if row == 0 || row >= self.rope.len_lines() { return; }
+        if row == 0 || row >= self.rope.len_lines() {
+            return;
+        }
         let line_start = self.rope.line_to_char(row);
         let prev_line_end = line_start - 1;
         if prev_line_end < self.rope.len_chars() {
             let ch = self.rope.char(prev_line_end);
-            if ch == '\n' { self.rope.remove(prev_line_end..prev_line_end + 1); }
+            if ch == '\n' {
+                self.rope.remove(prev_line_end..prev_line_end + 1);
+            }
         }
     }
 
@@ -102,7 +126,9 @@ impl Buffer {
 
     pub fn delete_range(&mut self, start: usize, end: usize) {
         let end = end.min(self.rope.len_chars());
-        if start < end { self.rope.remove(start..end); }
+        if start < end {
+            self.rope.remove(start..end);
+        }
     }
 
     pub fn replace_line(&mut self, row: usize, new_content: &str) {
@@ -115,11 +141,15 @@ impl Buffer {
         }
     }
 
-    pub fn rope_len(&self) -> usize { self.rope.len_chars() }
+    pub fn rope_len(&self) -> usize {
+        self.rope.len_chars()
+    }
 
     pub fn rope_slice(&self, start: usize, end: usize) -> String {
         let end = end.min(self.rope.len_chars());
-        if start >= end { return String::new(); }
+        if start >= end {
+            return String::new();
+        }
         self.rope.slice(start..end).to_string()
     }
 }

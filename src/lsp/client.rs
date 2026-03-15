@@ -39,6 +39,9 @@ impl LspClient {
     }
 
     pub fn get_diagnostics(&self, path: &str) -> &[Diagnostic] {
-        self.diagnostics.get(path).map(|v| v.as_slice()).unwrap_or(&[])
+        self.diagnostics
+            .get(path)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }

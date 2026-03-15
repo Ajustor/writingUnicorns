@@ -14,24 +14,24 @@ use crate::ui::shortcuts::ShortcutsHelp;
 use crate::ui::statusbar::StatusBar;
 
 pub struct WritingUnicorns {
-    pub config:          Config,
-    pub tab_manager:     TabManager,
-    pub editor:          Editor,
-    pub file_tree:       FileTree,
-    pub git_status:      GitStatus,
-    pub lsp_client:      Arc<Mutex<LspClient>>,
-    pub terminal:        Terminal,
-    pub status_bar:      StatusBar,
+    pub config: Config,
+    pub tab_manager: TabManager,
+    pub editor: Editor,
+    pub file_tree: FileTree,
+    pub git_status: GitStatus,
+    pub lsp_client: Arc<Mutex<LspClient>>,
+    pub terminal: Terminal,
+    pub status_bar: StatusBar,
     pub command_palette: CommandPalette,
-    pub shortcuts_help:  ShortcutsHelp,
-    pub sidebar_tab:     SidebarTab,
-    pub show_terminal:   bool,
-    pub show_sidebar:    bool,
-    pub sidebar_width:   f32,
+    pub shortcuts_help: ShortcutsHelp,
+    pub sidebar_tab: SidebarTab,
+    pub show_terminal: bool,
+    pub show_sidebar: bool,
+    pub sidebar_width: f32,
     pub terminal_height: f32,
-    pub workspace_path:  Option<PathBuf>,
-    pub folder_pending:  Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
-    pub file_pending:    Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
+    pub workspace_path: Option<PathBuf>,
+    pub folder_pending: Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
+    pub file_pending: Option<std::sync::mpsc::Receiver<std::path::PathBuf>>,
 }
 
 impl WritingUnicorns {
@@ -40,23 +40,23 @@ impl WritingUnicorns {
         let lsp_client = Arc::new(Mutex::new(LspClient::new()));
         Self {
             config,
-            tab_manager:     TabManager::new(),
-            editor:          Editor::new(),
-            file_tree:       FileTree::new(),
-            git_status:      GitStatus::new(),
+            tab_manager: TabManager::new(),
+            editor: Editor::new(),
+            file_tree: FileTree::new(),
+            git_status: GitStatus::new(),
             lsp_client,
-            terminal:        Terminal::new(),
-            status_bar:      StatusBar::new(),
+            terminal: Terminal::new(),
+            status_bar: StatusBar::new(),
             command_palette: CommandPalette::new(),
-            shortcuts_help:  ShortcutsHelp::new(),
-            sidebar_tab:     SidebarTab::default(),
-            show_terminal:   true,
-            show_sidebar:    true,
-            sidebar_width:   220.0,
+            shortcuts_help: ShortcutsHelp::new(),
+            sidebar_tab: SidebarTab::default(),
+            show_terminal: true,
+            show_sidebar: true,
+            sidebar_width: 220.0,
             terminal_height: 200.0,
-            workspace_path:  None,
-            folder_pending:  None,
-            file_pending:    None,
+            workspace_path: None,
+            folder_pending: None,
+            file_pending: None,
         }
     }
 
@@ -102,30 +102,52 @@ impl eframe::App for WritingUnicorns {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // All global shortcuts in one ctx.input() call to avoid double-read
         let (
-            want_open_folder, want_open_file, want_new,
-            want_palette, want_terminal, want_sidebar, want_help,
-        ) = ctx.input(|i| (
-            i.key_pressed(egui::Key::O) && i.modifiers.ctrl && !i.modifiers.shift,
-            i.key_pressed(egui::Key::O) && i.modifiers.ctrl && i.modifiers.shift,
-            i.key_pressed(egui::Key::N) && i.modifiers.ctrl,
-            i.key_pressed(egui::Key::P) && i.modifiers.ctrl,
-            i.key_pressed(egui::Key::Backtick) && i.modifiers.ctrl,
-            i.key_pressed(egui::Key::B) && i.modifiers.ctrl,
-            i.key_pressed(egui::Key::F1),
-        ));
+            want_open_folder,
+            want_open_file,
+            want_new,
+            want_palette,
+            want_terminal,
+            want_sidebar,
+            want_help,
+        ) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::O) && i.modifiers.ctrl && !i.modifiers.shift,
+                i.key_pressed(egui::Key::O) && i.modifiers.ctrl && i.modifiers.shift,
+                i.key_pressed(egui::Key::N) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::P) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::Backtick) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::B) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::F1),
+            )
+        });
 
-        if want_open_folder   { self.folder_pending = Some(self.trigger_open_folder()); }
-        if want_open_file     { self.file_pending   = Some(self.trigger_open_file()); }
-        if want_new           { self.open_new_file(); }
-        if want_palette       { self.command_palette.toggle(); }
-        if want_terminal      { self.show_terminal = !self.show_terminal; }
-        if want_sidebar       { self.show_sidebar  = !self.show_sidebar; }
-        if want_help          { self.shortcuts_help.toggle(); }
+        if want_open_folder {
+            self.folder_pending = Some(self.trigger_open_folder());
+        }
+        if want_open_file {
+            self.file_pending = Some(self.trigger_open_file());
+        }
+        if want_new {
+            self.open_new_file();
+        }
+        if want_palette {
+            self.command_palette.toggle();
+        }
+        if want_terminal {
+            self.show_terminal = !self.show_terminal;
+        }
+        if want_sidebar {
+            self.show_sidebar = !self.show_sidebar;
+        }
+        if want_help {
+            self.shortcuts_help.toggle();
+        }
 
         crate::ui::layout::render(self, ctx);
 
         if self.command_palette.is_open() {
-            self.command_palette.show(ctx, &mut self.file_tree, &mut self.workspace_path);
+            self.command_palette
+                .show(ctx, &mut self.file_tree, &mut self.workspace_path);
         }
 
         self.shortcuts_help.show(ctx);

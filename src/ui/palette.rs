@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use crate::filetree::FileTree;
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+use std::path::PathBuf;
 
 pub struct CommandPalette {
     pub open: bool,
@@ -41,7 +41,12 @@ impl CommandPalette {
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, file_tree: &mut FileTree, _workspace: &mut Option<PathBuf>) {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        file_tree: &mut FileTree,
+        _workspace: &mut Option<PathBuf>,
+    ) {
         let mut close = false;
         let mut opened: Option<PathBuf> = None;
 
@@ -89,13 +94,18 @@ impl CommandPalette {
 
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         for path in &self.results {
-                            let name = path.file_name()
+                            let name = path
+                                .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
-                            let dir = path.parent()
+                            let dir = path
+                                .parent()
                                 .map(|p| p.to_string_lossy().to_string())
                                 .unwrap_or_default();
-                            if ui.selectable_label(false, format!("{}\n  {}", name, dir)).clicked() {
+                            if ui
+                                .selectable_label(false, format!("{}\n  {}", name, dir))
+                                .clicked()
+                            {
                                 opened = Some(path.clone());
                                 close = true;
                             }

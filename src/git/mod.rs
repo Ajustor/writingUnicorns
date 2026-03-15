@@ -43,24 +43,35 @@ impl GitStatus {
             let mut opts = git2::StatusOptions::new();
             opts.include_untracked(true);
             if let Ok(statuses) = repo.statuses(Some(&mut opts)) {
-                self.files = statuses.iter().filter_map(|s| {
-                    let path = s.path()?.to_string();
-                    let st = s.status();
-                    let status = if st.contains(git2::Status::WT_MODIFIED) || st.contains(git2::Status::INDEX_MODIFIED) {
-                        GitFileStatus::Modified
-                    } else if st.contains(git2::Status::WT_NEW) || st.contains(git2::Status::INDEX_NEW) {
-                        GitFileStatus::Added
-                    } else if st.contains(git2::Status::WT_DELETED) || st.contains(git2::Status::INDEX_DELETED) {
-                        GitFileStatus::Deleted
-                    } else if st.contains(git2::Status::WT_RENAMED) || st.contains(git2::Status::INDEX_RENAMED) {
-                        GitFileStatus::Renamed
-                    } else if st.contains(git2::Status::IGNORED) {
-                        return None;
-                    } else {
-                        GitFileStatus::Untracked
-                    };
-                    Some(FileStatus { path, status })
-                }).collect();
+                self.files = statuses
+                    .iter()
+                    .filter_map(|s| {
+                        let path = s.path()?.to_string();
+                        let st = s.status();
+                        let status = if st.contains(git2::Status::WT_MODIFIED)
+                            || st.contains(git2::Status::INDEX_MODIFIED)
+                        {
+                            GitFileStatus::Modified
+                        } else if st.contains(git2::Status::WT_NEW)
+                            || st.contains(git2::Status::INDEX_NEW)
+                        {
+                            GitFileStatus::Added
+                        } else if st.contains(git2::Status::WT_DELETED)
+                            || st.contains(git2::Status::INDEX_DELETED)
+                        {
+                            GitFileStatus::Deleted
+                        } else if st.contains(git2::Status::WT_RENAMED)
+                            || st.contains(git2::Status::INDEX_RENAMED)
+                        {
+                            GitFileStatus::Renamed
+                        } else if st.contains(git2::Status::IGNORED) {
+                            return None;
+                        } else {
+                            GitFileStatus::Untracked
+                        };
+                        Some(FileStatus { path, status })
+                    })
+                    .collect();
             }
         }
     }

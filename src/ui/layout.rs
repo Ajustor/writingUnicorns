@@ -1,5 +1,5 @@
-use egui::{Context, SidePanel, TopBottomPanel, CentralPanel};
 use crate::app::WritingUnicorns;
+use egui::{CentralPanel, Context, SidePanel, TopBottomPanel};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum SidebarTab {
@@ -36,7 +36,9 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
 
     // Update window title to show modified indicator (● prefix)
     {
-        let filename = app.editor.current_path
+        let filename = app
+            .editor
+            .current_path
             .as_ref()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
@@ -113,9 +115,11 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
         });
     });
 
-    TopBottomPanel::bottom("status_bar").exact_height(22.0).show(ctx, |ui| {
-        app.status_bar.show(ui, &app.editor, &app.git_status);
-    });
+    TopBottomPanel::bottom("status_bar")
+        .exact_height(22.0)
+        .show(ctx, |ui| {
+            app.status_bar.show(ui, &app.editor, &app.git_status);
+        });
 
     if app.show_terminal {
         TopBottomPanel::bottom("terminal_panel")
@@ -124,7 +128,12 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
             .default_height(app.terminal_height)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("TERMINAL").small().strong().color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new("TERMINAL")
+                            .small()
+                            .strong()
+                            .color(egui::Color32::GRAY),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("×").clicked() {
                             app.show_terminal = false;
@@ -143,12 +152,12 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
             .default_width(app.sidebar_width)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let explorer_label = egui::RichText::new(
-                        format!("{} Explorer", egui_phosphor::regular::FOLDER_SIMPLE)
-                    );
-                    let git_label = egui::RichText::new(
-                        format!("{} Git", egui_phosphor::regular::GIT_BRANCH)
-                    );
+                    let explorer_label = egui::RichText::new(format!(
+                        "{} Explorer",
+                        egui_phosphor::regular::FOLDER_SIMPLE
+                    ));
+                    let git_label =
+                        egui::RichText::new(format!("{} Git", egui_phosphor::regular::GIT_BRANCH));
                     ui.selectable_value(&mut app.sidebar_tab, SidebarTab::Explorer, explorer_label);
                     ui.selectable_value(&mut app.sidebar_tab, SidebarTab::Git, git_label);
                 });
@@ -171,33 +180,40 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
 
     // Use a zero-margin frame so there's no gap/padding around the editor area
     CentralPanel::default()
-        .frame(egui::Frame::new()
-            .fill(egui::Color32::from_rgb(30, 30, 30))
-            .inner_margin(egui::Margin::ZERO))
+        .frame(
+            egui::Frame::new()
+                .fill(egui::Color32::from_rgb(30, 30, 30))
+                .inner_margin(egui::Margin::ZERO),
+        )
         .show(ctx, |ui| {
-        // Remove default item spacing to avoid gaps between tab bar and editor
-        ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+            // Remove default item spacing to avoid gaps between tab bar and editor
+            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-        if !app.tab_manager.tabs.is_empty() {
-            // Draw the tab bar background explicitly to fill the full allocated height
-            let (tab_rect, _) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), 32.0),
-                egui::Sense::hover(),
-            );
-            ui.painter().rect_filled(tab_rect, 0.0, egui::Color32::from_rgb(37, 37, 38));
-            let mut tab_ui = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect).layout(*ui.layout()));
-            tab_ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
-            if let Some(path) = app.tab_manager.show(&mut tab_ui) {
-                app.open_file(path);
+            if !app.tab_manager.tabs.is_empty() {
+                // Draw the tab bar background explicitly to fill the full allocated height
+                let (tab_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 32.0),
+                    egui::Sense::hover(),
+                );
+                ui.painter()
+                    .rect_filled(tab_rect, 0.0, egui::Color32::from_rgb(37, 37, 38));
+                let mut tab_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(tab_rect)
+                        .layout(*ui.layout()),
+                );
+                tab_ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+                if let Some(path) = app.tab_manager.show(&mut tab_ui) {
+                    app.open_file(path);
+                }
             }
-        }
 
-        if app.editor.current_path.is_some() || !app.editor.buffer.to_string().is_empty() {
-            app.editor.show(ui, &app.config);
-        } else {
-            welcome_screen(ui);
-        }
-    });
+            if app.editor.current_path.is_some() || !app.editor.buffer.to_string().is_empty() {
+                app.editor.show(ui, &app.config);
+            } else {
+                welcome_screen(ui);
+            }
+        });
 }
 
 fn welcome_screen(ui: &mut egui::Ui) {
@@ -220,7 +236,10 @@ fn welcome_screen(ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Ctrl+B  — Toggle Sidebar").color(egui::Color32::GRAY));
         ui.label(egui::RichText::new("Ctrl+`  — Toggle Terminal").color(egui::Color32::GRAY));
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("File → Open Folder to get started").color(egui::Color32::from_rgb(150, 200, 150)));
+        ui.label(
+            egui::RichText::new("File → Open Folder to get started")
+                .color(egui::Color32::from_rgb(150, 200, 150)),
+        );
     });
 }
 

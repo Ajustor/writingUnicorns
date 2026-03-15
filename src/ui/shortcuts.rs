@@ -35,49 +35,49 @@ impl ShortcutsHelp {
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     section(ui, "General");
-                    row(ui, "F1",                 "Show / hide this help");
-                    row(ui, "Ctrl + N",           "New empty file");
-                    row(ui, "Ctrl + O",           "Open folder");
-                    row(ui, "Ctrl + Shift + O",   "Open file");
-                    row(ui, "Ctrl + S",           "Save current file");
-                    row(ui, "Ctrl + P",           "Command palette (file search)");
-                    row(ui, "Ctrl + B",           "Toggle sidebar");
-                    row(ui, "Ctrl + `",           "Toggle integrated terminal");
+                    row(ui, "F1", "Show / hide this help");
+                    row(ui, "Ctrl + N", "New empty file");
+                    row(ui, "Ctrl + O", "Open folder");
+                    row(ui, "Ctrl + Shift + O", "Open file");
+                    row(ui, "Ctrl + S", "Save current file");
+                    row(ui, "Ctrl + P", "Command palette (file search)");
+                    row(ui, "Ctrl + B", "Toggle sidebar");
+                    row(ui, "Ctrl + `", "Toggle integrated terminal");
 
                     ui.add_space(8.0);
                     section(ui, "Editor");
-                    row(ui, "Arrow keys",       "Move cursor");
-                    row(ui, "Home / End",       "Go to start / end of line");
-                    row(ui, "Backspace",        "Delete character before cursor");
-                    row(ui, "Enter",            "Insert new line");
-                    row(ui, "Tab",              "Indent (insert 4 spaces)");
-                    row(ui, "Shift + Tab",      "Un-indent (remove leading spaces)");
-                    row(ui, "Ctrl + S",         "Save file");
+                    row(ui, "Arrow keys", "Move cursor");
+                    row(ui, "Home / End", "Go to start / end of line");
+                    row(ui, "Backspace", "Delete character before cursor");
+                    row(ui, "Enter", "Insert new line");
+                    row(ui, "Tab", "Indent (insert 4 spaces)");
+                    row(ui, "Shift + Tab", "Un-indent (remove leading spaces)");
+                    row(ui, "Ctrl + S", "Save file");
 
                     ui.add_space(8.0);
                     section(ui, "Navigation");
-                    row(ui, "Ctrl + P",         "Go to file (fuzzy search)");
-                    row(ui, "Click file tree",  "Open file");
-                    row(ui, "Click tab",        "Switch to tab");
-                    row(ui, "× on tab",         "Close tab");
+                    row(ui, "Ctrl + P", "Go to file (fuzzy search)");
+                    row(ui, "Click file tree", "Open file");
+                    row(ui, "Click tab", "Switch to tab");
+                    row(ui, "× on tab", "Close tab");
 
                     ui.add_space(8.0);
                     section(ui, "Sidebar");
-                    row(ui, "Click ▸ / ▾",     "Expand / collapse folder");
-                    row(ui, "Explorer tab",     "Browse project files");
-                    row(ui, "Git tab",          "View changed files & branch");
+                    row(ui, "Click ▸ / ▾", "Expand / collapse folder");
+                    row(ui, "Explorer tab", "Browse project files");
+                    row(ui, "Git tab", "View changed files & branch");
 
                     ui.add_space(8.0);
                     section(ui, "Terminal");
-                    row(ui, "Enter",            "Execute command");
-                    row(ui, "Ctrl + `",         "Show / hide terminal panel");
+                    row(ui, "Enter", "Execute command");
+                    row(ui, "Ctrl + `", "Show / hide terminal panel");
 
                     ui.add_space(8.0);
                     section(ui, "Menu");
-                    row(ui, "File → Open Folder",  "Open a workspace folder");
-                    row(ui, "File → Open File",    "Open a single file");
-                    row(ui, "File → Save",          "Save current file");
-                    row(ui, "View → …",             "Toggle sidebar / terminal / palette");
+                    row(ui, "File → Open Folder", "Open a workspace folder");
+                    row(ui, "File → Open File", "Open a single file");
+                    row(ui, "File → Save", "Save current file");
+                    row(ui, "View → …", "Toggle sidebar / terminal / palette");
                     row(ui, "Git → Refresh Status", "Reload git file status");
                 });
             });
@@ -110,9 +110,7 @@ fn row(ui: &mut egui::Ui, keys: &str, description: &str) {
                 );
             });
         ui.add_space(6.0);
-        ui.label(
-            egui::RichText::new(description).color(egui::Color32::from_rgb(180, 180, 180)),
-        );
+        ui.label(egui::RichText::new(description).color(egui::Color32::from_rgb(180, 180, 180)));
     });
     ui.add_space(2.0);
 }

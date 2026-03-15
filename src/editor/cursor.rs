@@ -1,15 +1,20 @@
 use super::buffer::Buffer;
 
 pub struct Cursor {
-    pub row:        usize,
-    pub col:        usize,
+    pub row: usize,
+    pub col: usize,
     pub desired_col: usize,
     pub sel_anchor: Option<(usize, usize)>,
 }
 
 impl Cursor {
     pub fn new() -> Self {
-        Self { row: 0, col: 0, desired_col: 0, sel_anchor: None }
+        Self {
+            row: 0,
+            col: 0,
+            desired_col: 0,
+            sel_anchor: None,
+        }
     }
 
     pub fn position(&self) -> (usize, usize) {
@@ -40,7 +45,11 @@ impl Cursor {
     pub fn selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
         let anchor = self.sel_anchor?;
         let cursor = (self.row, self.col);
-        if anchor <= cursor { Some((anchor, cursor)) } else { Some((cursor, anchor)) }
+        if anchor <= cursor {
+            Some((anchor, cursor))
+        } else {
+            Some((cursor, anchor))
+        }
     }
 
     pub fn move_left(&mut self, buf: &Buffer) {

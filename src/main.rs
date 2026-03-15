@@ -21,12 +21,12 @@ fn load_icon() -> Option<egui::IconData> {
     let mut height = 0u32;
     let mut idat = Vec::new();
     while pos + 8 <= bytes.len() {
-        let len = u32::from_be_bytes(bytes[pos..pos+4].try_into().ok()?) as usize;
-        let tag = &bytes[pos+4..pos+8];
-        let data = &bytes[pos+8..pos+8+len];
+        let len = u32::from_be_bytes(bytes[pos..pos + 4].try_into().ok()?) as usize;
+        let tag = &bytes[pos + 4..pos + 8];
+        let data = &bytes[pos + 8..pos + 8 + len];
         match tag {
             b"IHDR" => {
-                width  = u32::from_be_bytes(data[0..4].try_into().ok()?);
+                width = u32::from_be_bytes(data[0..4].try_into().ok()?);
                 height = u32::from_be_bytes(data[4..8].try_into().ok()?);
             }
             b"IDAT" => idat.extend_from_slice(data),
@@ -43,10 +43,14 @@ fn load_icon() -> Option<egui::IconData> {
         // filter byte at start (we always used 0=None in our generator)
         for px in 0..width as usize {
             let o = start + 1 + px * 4;
-            rgba.extend_from_slice(&raw[o..o+4]);
+            rgba.extend_from_slice(&raw[o..o + 4]);
         }
     }
-    Some(egui::IconData { rgba, width, height })
+    Some(egui::IconData {
+        rgba,
+        width,
+        height,
+    })
 }
 
 fn main() -> eframe::Result<()> {
