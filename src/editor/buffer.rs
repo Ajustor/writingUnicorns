@@ -53,7 +53,7 @@ impl Buffer {
         line_start + col
     }
 
-    fn checkpoint(&mut self) {
+    pub fn checkpoint(&mut self) {
         self.history.push(self.rope.clone());
         self.future.clear();
         if self.history.len() > 200 {
@@ -82,14 +82,12 @@ impl Buffer {
     }
 
     pub fn insert_char(&mut self, row: usize, col: usize, ch: char) {
-        self.checkpoint();
         let idx = self.char_index(row, col);
         let idx = idx.min(self.rope.len_chars());
         self.rope.insert_char(idx, ch);
     }
 
     pub fn delete_char(&mut self, row: usize, col: usize) {
-        self.checkpoint();
         let idx = self.char_index(row, col);
         if idx < self.rope.len_chars() {
             self.rope.remove(idx..idx + 1);
@@ -97,14 +95,12 @@ impl Buffer {
     }
 
     pub fn split_line(&mut self, row: usize, col: usize) {
-        self.checkpoint();
         let idx = self.char_index(row, col);
         let idx = idx.min(self.rope.len_chars());
         self.rope.insert_char(idx, '\n');
     }
 
     pub fn join_lines(&mut self, row: usize) {
-        self.checkpoint();
         if row == 0 || row >= self.rope.len_lines() {
             return;
         }
@@ -151,5 +147,22 @@ impl Buffer {
             return String::new();
         }
         self.rope.slice(start..end).to_string()
+    }
+
+    pub fn delete_line(&mut self, row: usize) {
+        let total = self.rope.len_lines();
+        if total == 0 {
+            return;
+        }
+        let row = row.min(total.saturating_sub(1));
+        let start = self.rope.line_to_char(row);
+        let end = if row + 1 < total {
+            self.rope.line_to_char(row + 1)
+        } else {
+            self.rope.len_chars()
+        };
+        if start < end {
+            self.rope.remove(start..end);
+        }
     }
 }

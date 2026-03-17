@@ -1,5 +1,6 @@
 use super::buffer::Buffer;
 
+#[derive(Clone)]
 pub struct Cursor {
     pub row: usize,
     pub col: usize,

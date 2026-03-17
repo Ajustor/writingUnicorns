@@ -15,7 +15,7 @@ impl ShortcutsHelp {
         self.open
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
+    pub fn show(&mut self, ctx: &egui::Context, keybindings: &crate::config::KeyBindings) {
         if !self.open {
             return;
         }
@@ -35,28 +35,55 @@ impl ShortcutsHelp {
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     section(ui, "General");
-                    row(ui, "F1", "Show / hide this help");
-                    row(ui, "Ctrl + N", "New empty file");
-                    row(ui, "Ctrl + O", "Open folder");
-                    row(ui, "Ctrl + Shift + O", "Open file");
-                    row(ui, "Ctrl + S", "Save current file");
-                    row(ui, "Ctrl + P", "Command palette (file search)");
-                    row(ui, "Ctrl + B", "Toggle sidebar");
-                    row(ui, "Ctrl + `", "Toggle integrated terminal");
+                    row(
+                        ui,
+                        &keybindings.shortcuts_help.display(),
+                        "Show / hide this help",
+                    );
+                    row(ui, &keybindings.settings.display(), "Open Settings");
+                    row(ui, &keybindings.new_file.display(), "New empty file");
+                    row(ui, &keybindings.open_folder.display(), "Open folder");
+                    row(ui, &keybindings.open_file.display(), "Open file");
+                    row(ui, &keybindings.save.display(), "Save current file");
+                    row(
+                        ui,
+                        &keybindings.command_palette.display(),
+                        "Command palette (file search)",
+                    );
+                    row(ui, "Ctrl+Shift+F", "Search in workspace");
+                    row(ui, &keybindings.toggle_sidebar.display(), "Toggle sidebar");
+                    row(
+                        ui,
+                        &keybindings.toggle_terminal.display(),
+                        "Toggle integrated terminal",
+                    );
 
                     ui.add_space(8.0);
                     section(ui, "Editor");
                     row(ui, "Arrow keys", "Move cursor");
                     row(ui, "Home / End", "Go to start / end of line");
+                    row(ui, "Ctrl+Home", "Go to start of file");
+                    row(ui, "Ctrl+End", "Go to end of file");
                     row(ui, "Backspace", "Delete character before cursor");
                     row(ui, "Enter", "Insert new line");
+                    row(ui, "Ctrl+Enter", "Insert line below cursor");
+                    row(ui, "Ctrl+Shift+Enter", "Insert line above cursor");
                     row(ui, "Tab", "Indent (insert 4 spaces)");
                     row(ui, "Shift + Tab", "Un-indent (remove leading spaces)");
-                    row(ui, "Ctrl + S", "Save file");
+                    row(ui, "Ctrl+/", "Toggle line comment");
+                    row(ui, "Ctrl+Shift+K", "Delete current line");
+                    row(ui, "Ctrl+Shift+↑", "Move line up");
+                    row(ui, "Ctrl+Shift+↓", "Move line down");
+                    row(ui, &keybindings.save.display(), "Save file");
+                    row(ui, &keybindings.close_tab.display(), "Close tab");
 
                     ui.add_space(8.0);
                     section(ui, "Navigation");
-                    row(ui, "Ctrl + P", "Go to file (fuzzy search)");
+                    row(
+                        ui,
+                        &keybindings.command_palette.display(),
+                        "Go to file (fuzzy search)",
+                    );
                     row(ui, "Click file tree", "Open file");
                     row(ui, "Click tab", "Switch to tab");
                     row(ui, "× on tab", "Close tab");
@@ -70,7 +97,16 @@ impl ShortcutsHelp {
                     ui.add_space(8.0);
                     section(ui, "Terminal");
                     row(ui, "Enter", "Execute command");
-                    row(ui, "Ctrl + `", "Show / hide terminal panel");
+                    row(
+                        ui,
+                        &keybindings.toggle_terminal.display(),
+                        "Show / hide terminal panel",
+                    );
+
+                    ui.add_space(8.0);
+                    section(ui, "Run");
+                    row(ui, "F5", "Run active configuration");
+                    row(ui, "Ctrl+F5", "Run without stopping");
 
                     ui.add_space(8.0);
                     section(ui, "Menu");

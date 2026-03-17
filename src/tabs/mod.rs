@@ -6,6 +6,7 @@ pub struct Tab {
     pub path: PathBuf,
     pub title: String,
     pub is_modified: bool,
+    pub is_settings: bool,
 }
 
 pub struct TabManager {
@@ -40,6 +41,7 @@ impl TabManager {
             path,
             title,
             is_modified: false,
+            is_settings: false,
         });
         self.active_tab = Some(id);
         id
@@ -55,6 +57,26 @@ impl TabManager {
             path,
             title,
             is_modified: true,
+            is_settings: false,
+        });
+        self.active_tab = Some(id);
+        id
+    }
+
+    pub fn open_settings(&mut self) -> usize {
+        if let Some(existing) = self.tabs.iter().find(|t| t.is_settings) {
+            let id = existing.id;
+            self.active_tab = Some(id);
+            return id;
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        self.tabs.push(Tab {
+            id,
+            path: PathBuf::from("__settings__"),
+            title: "Settings".to_string(),
+            is_modified: false,
+            is_settings: true,
         });
         self.active_tab = Some(id);
         id
@@ -69,18 +91,27 @@ impl TabManager {
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<PathBuf> {
         let mut to_open: Option<PathBuf> = None;
+        let mut activate_id: Option<usize> = None;
         let mut to_close: Option<usize> = None;
         let active_tab = self.active_tab;
 
-        let tabs_data: Vec<(usize, PathBuf, String, bool)> = self
+        let tabs_data: Vec<(usize, PathBuf, String, bool, bool)> = self
             .tabs
             .iter()
-            .map(|t| (t.id, t.path.clone(), t.title.clone(), t.is_modified))
+            .map(|t| {
+                (
+                    t.id,
+                    t.path.clone(),
+                    t.title.clone(),
+                    t.is_modified,
+                    t.is_settings,
+                )
+            })
             .collect();
 
         ui.horizontal(|ui| {
             ui.style_mut().spacing.item_spacing.x = 0.0;
-            for (tab_id, tab_path, tab_title, tab_modified) in &tabs_data {
+            for (tab_id, tab_path, tab_title, tab_modified, tab_is_settings) in &tabs_data {
                 let is_active = active_tab == Some(*tab_id);
                 let bg = if is_active {
                     egui::Color32::from_rgb(30, 30, 30)
@@ -89,6 +120,17 @@ impl TabManager {
                 };
                 egui::Frame::new().fill(bg).show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        if *tab_is_settings {
+                            ui.label(
+                                egui::RichText::new(egui_phosphor::regular::GEAR)
+                                    .color(egui::Color32::from_gray(160))
+                                    .size(14.0),
+                            );
+                        } else {
+                            let (icon, icon_color) = crate::filetree::file_icon(tab_title);
+                            ui.label(egui::RichText::new(icon).color(icon_color).size(14.0));
+                        }
+                        ui.add_space(2.0);
                         let tab_label = if *tab_modified {
                             egui::RichText::new(format!("● {}", tab_title))
                                 .color(egui::Color32::from_rgb(255, 180, 50))
@@ -100,7 +142,11 @@ impl TabManager {
                             })
                         };
                         if ui.selectable_label(is_active, tab_label).clicked() {
-                            to_open = Some(tab_path.clone());
+                            if *tab_is_settings {
+                                activate_id = Some(*tab_id);
+                            } else {
+                                to_open = Some(tab_path.clone());
+                            }
                         }
                         if ui.small_button("×").clicked() {
                             to_close = Some(*tab_id);
@@ -110,6 +156,10 @@ impl TabManager {
                 ui.separator();
             }
         });
+
+        if let Some(id) = activate_id {
+            self.active_tab = Some(id);
+        }
 
         if let Some(ref path) = to_open {
             if let Some(tab) = self.tabs.iter().find(|t| &t.path == path) {

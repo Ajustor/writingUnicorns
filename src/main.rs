@@ -4,9 +4,12 @@
 mod app;
 mod config;
 mod editor;
+pub mod extension;
 mod filetree;
 mod git;
 mod lsp;
+pub mod plugin;
+pub mod runner;
 mod tabs;
 mod terminal;
 mod ui;
@@ -56,6 +59,9 @@ fn load_icon() -> Option<egui::IconData> {
 fn main() -> eframe::Result<()> {
     env_logger::init();
 
+    let args: Vec<String> = std::env::args().collect();
+    let initial_path = args.get(1).map(std::path::PathBuf::from);
+
     let icon = load_icon();
     let mut viewport = egui::ViewportBuilder::default()
         .with_title("Writing Unicorns")
@@ -77,9 +83,26 @@ fn main() -> eframe::Result<()> {
             // Load Phosphor icon font so sidebar icons render correctly
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
+            // Add Symbola as a fallback so emoji and symbols (🦄, ●, ⚙, etc.) render correctly
+            fonts.font_data.insert(
+                "Symbola".to_owned(),
+                egui::FontData::from_static(include_bytes!("../assets/Symbola.ttf")).into(),
+            );
+            fonts
+                .families
+                .get_mut(&egui::FontFamily::Proportional)
+                .unwrap()
+                .push("Symbola".to_owned());
+            fonts
+                .families
+                .get_mut(&egui::FontFamily::Monospace)
+                .unwrap()
+                .push("Symbola".to_owned());
+
             cc.egui_ctx.set_fonts(fonts);
 
-            Ok(Box::new(WritingUnicorns::new(cc)))
+            Ok(Box::new(WritingUnicorns::new(cc, initial_path)))
         }),
     )
 }

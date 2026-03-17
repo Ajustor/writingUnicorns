@@ -155,7 +155,7 @@ impl FileTree {
 }
 
 /// Returns (phosphor icon char, color) for a given filename.
-fn file_icon(name: &str) -> (&'static str, egui::Color32) {
+pub fn file_icon(name: &str) -> (&'static str, egui::Color32) {
     let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
     // Phosphor Regular has dedicated icons for: rs, py, js, ts, jsx, tsx, html, css, c, cpp, sql, md, txt, lock, svg
     // For other languages, use FILE_CODE with a distinctive color

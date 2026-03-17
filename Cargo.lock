@@ -5083,6 +5083,7 @@ dependencies = [
  "env_logger",
  "fuzzy-matcher",
  "git2",
+ "libloading",
  "log",
  "lsp-types",
  "miniz_oxide 0.9.1",

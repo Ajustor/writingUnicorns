@@ -8,6 +8,10 @@ pub enum TokenKind {
     Function,
     Macro,
     Normal,
+    Class,     // teal, for struct/enum/trait/class names (starts with uppercase)
+    TypeParam, // lighter teal, for single-letter generic type params like T, U
+    Operator,  // light gray/white for operators (kept separate from Normal)
+    Property,  // light blue for struct fields / object properties after `.`
 }
 
 impl TokenKind {
@@ -21,6 +25,10 @@ impl TokenKind {
             TokenKind::Function => egui::Color32::from_rgb(220, 220, 170),
             TokenKind::Macro => egui::Color32::from_rgb(220, 220, 170),
             TokenKind::Normal => egui::Color32::from_rgb(212, 212, 212),
+            TokenKind::Class => egui::Color32::from_rgb(78, 201, 176),
+            TokenKind::TypeParam => egui::Color32::from_rgb(180, 220, 220),
+            TokenKind::Operator => egui::Color32::from_rgb(212, 212, 212),
+            TokenKind::Property => egui::Color32::from_rgb(156, 220, 254),
         }
     }
 }
@@ -164,12 +172,20 @@ fn generic_tokenize(
             }
             let word: String = chars[start..i].iter().collect();
             let followed_by_paren = i < len && chars[i] == '(';
+            let preceded_by_dot = start > 0 && chars[start - 1] == '.';
+            let first_char = word.chars().next().unwrap_or('\0');
             let kind = if type_keywords.contains(&word.as_str()) {
                 TokenKind::KeywordType
             } else if keywords.contains(&word.as_str()) {
                 TokenKind::Keyword
             } else if followed_by_paren {
                 TokenKind::Function
+            } else if preceded_by_dot && word.chars().all(|c| c.is_lowercase() || c == '_') {
+                TokenKind::Property
+            } else if first_char.is_uppercase() && word.chars().count() == 1 {
+                TokenKind::TypeParam
+            } else if first_char.is_uppercase() {
+                TokenKind::Class
             } else {
                 TokenKind::Normal
             };
@@ -200,7 +216,7 @@ fn char_byte_offset(chars: &[char], char_idx: usize) -> usize {
     chars[..char_idx].iter().map(|c| c.len_utf8()).sum()
 }
 
-fn tokenize_rust(line: &str) -> Vec<Token> {
+pub fn tokenize_rust(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
     if trimmed.starts_with("///") || trimmed.starts_with("//!") {
         return vec![Token {
@@ -229,7 +245,10 @@ fn tokenize_rust(line: &str) -> Vec<Token> {
     let mut col = 0usize;
     for tok in &mut tokens {
         let end = col + tok.text.chars().count();
-        if (tok.kind == TokenKind::Normal || tok.kind == TokenKind::Function)
+        if (tok.kind == TokenKind::Normal
+            || tok.kind == TokenKind::Function
+            || tok.kind == TokenKind::Class
+            || tok.kind == TokenKind::TypeParam)
             && end < src_chars.len()
             && src_chars[end] == '!'
         {
@@ -240,7 +259,7 @@ fn tokenize_rust(line: &str) -> Vec<Token> {
     tokens
 }
 
-fn tokenize_js_ts(line: &str) -> Vec<Token> {
+pub fn tokenize_js_ts(line: &str) -> Vec<Token> {
     generic_tokenize(
         line,
         "//",
@@ -344,7 +363,7 @@ fn tokenize_js_ts(line: &str) -> Vec<Token> {
     )
 }
 
-fn tokenize_python(line: &str) -> Vec<Token> {
+pub fn tokenize_python(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
     if trimmed.starts_with('#') {
         return vec![Token {
@@ -388,11 +407,11 @@ fn tokenize_python(line: &str) -> Vec<Token> {
     )
 }
 
-fn tokenize_json(line: &str) -> Vec<Token> {
+pub fn tokenize_json(line: &str) -> Vec<Token> {
     generic_tokenize(line, "//", &['"'], &["true", "false", "null"], &[])
 }
 
-fn tokenize_toml(line: &str) -> Vec<Token> {
+pub fn tokenize_toml(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
     if trimmed.starts_with('#') {
         return vec![Token {
@@ -409,7 +428,7 @@ fn tokenize_toml(line: &str) -> Vec<Token> {
     generic_tokenize(line, "#", &['"', '\''], &["true", "false"], &[])
 }
 
-fn tokenize_shell(line: &str) -> Vec<Token> {
+pub fn tokenize_shell(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
     if trimmed.starts_with('#') {
         return vec![Token {
@@ -431,7 +450,7 @@ fn tokenize_shell(line: &str) -> Vec<Token> {
     )
 }
 
-fn tokenize_dockerfile(line: &str) -> Vec<Token> {
+pub fn tokenize_dockerfile(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
     // Comments
     if trimmed.starts_with('#') {
@@ -493,4 +512,202 @@ fn tokenize_dockerfile(line: &str) -> Vec<Token> {
     }
     // Continuation lines (RUN \ multiline) — treat as shell-like
     generic_tokenize(line, "#", &['"', '\''], &["AS", "as", "true", "false"], &[])
+}
+
+/// Returns all keywords (control flow + types) for the given file extension / language identifier.
+pub fn keywords_for_language(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "rs" => &[
+            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+            "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
+            "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super",
+            "trait", "true", "type", "unsafe", "use", "where", "while", "bool", "u8", "u16", "u32",
+            "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize", "f32", "f64",
+            "char", "str", "String", "Vec", "Option", "Result", "Box", "Arc", "Rc", "Mutex",
+            "HashMap", "HashSet", "BTreeMap", "BTreeSet",
+        ],
+        "js" | "ts" | "jsx" | "tsx" | "mjs" => &[
+            "abstract",
+            "arguments",
+            "as",
+            "async",
+            "await",
+            "break",
+            "case",
+            "catch",
+            "class",
+            "const",
+            "continue",
+            "debugger",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "enum",
+            "export",
+            "extends",
+            "false",
+            "finally",
+            "for",
+            "from",
+            "function",
+            "get",
+            "if",
+            "implements",
+            "import",
+            "in",
+            "instanceof",
+            "interface",
+            "let",
+            "module",
+            "namespace",
+            "new",
+            "null",
+            "of",
+            "package",
+            "private",
+            "protected",
+            "public",
+            "readonly",
+            "return",
+            "set",
+            "static",
+            "super",
+            "switch",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "type",
+            "typeof",
+            "undefined",
+            "var",
+            "void",
+            "while",
+            "with",
+            "yield",
+            "declare",
+            "keyof",
+            "infer",
+            "never",
+            "unknown",
+            "any",
+            "override",
+            "satisfies",
+            "accessor",
+            "boolean",
+            "number",
+            "string",
+            "symbol",
+            "bigint",
+            "object",
+            "Array",
+            "Promise",
+            "Record",
+            "Partial",
+            "Required",
+            "Readonly",
+            "Pick",
+            "Omit",
+            "Exclude",
+            "Extract",
+            "NonNullable",
+            "ReturnType",
+            "InstanceType",
+            "Map",
+            "Set",
+            "Date",
+            "RegExp",
+            "Error",
+        ],
+        "py" => &[
+            "False",
+            "None",
+            "True",
+            "and",
+            "as",
+            "assert",
+            "async",
+            "await",
+            "break",
+            "class",
+            "continue",
+            "def",
+            "del",
+            "elif",
+            "else",
+            "except",
+            "finally",
+            "for",
+            "from",
+            "global",
+            "if",
+            "import",
+            "in",
+            "is",
+            "lambda",
+            "nonlocal",
+            "not",
+            "or",
+            "pass",
+            "raise",
+            "return",
+            "try",
+            "while",
+            "with",
+            "yield",
+            "int",
+            "float",
+            "str",
+            "bool",
+            "bytes",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "type",
+            "object",
+            "super",
+            "property",
+            "classmethod",
+            "staticmethod",
+            "Exception",
+            "TypeError",
+            "ValueError",
+            "KeyError",
+            "IndexError",
+            "AttributeError",
+        ],
+        "sh" | "bash" | "zsh" => &[
+            "if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac",
+            "function", "return", "exit", "export", "local", "readonly", "source", "echo", "cd",
+            "ls", "mkdir", "rm", "cp", "mv", "cat", "grep", "sed", "awk", "find", "chmod", "chown",
+            "sudo", "true", "false", "in",
+        ],
+        "dockerfile" => &[
+            "FROM",
+            "RUN",
+            "CMD",
+            "LABEL",
+            "EXPOSE",
+            "ENV",
+            "ADD",
+            "COPY",
+            "ENTRYPOINT",
+            "VOLUME",
+            "USER",
+            "WORKDIR",
+            "ARG",
+            "ONBUILD",
+            "STOPSIGNAL",
+            "HEALTHCHECK",
+            "SHELL",
+            "MAINTAINER",
+            "AS",
+            "as",
+        ],
+        "json" => &["true", "false", "null"],
+        "toml" => &["true", "false"],
+        _ => &[],
+    }
 }
