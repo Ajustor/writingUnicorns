@@ -53,7 +53,9 @@ impl ExtensionsPanel {
 
     pub fn show(&mut self, ui: &mut egui::Ui, registry: &mut ExtensionRegistry) {
         // Poll update jobs
-        let finished_ids: Vec<String> = self.update_jobs.iter()
+        let finished_ids: Vec<String> = self
+            .update_jobs
+            .iter()
             .filter_map(|(id, rx)| {
                 if let Ok(status) = rx.try_recv() {
                     self.update_statuses.insert(id.clone(), status.clone());
@@ -99,7 +101,11 @@ impl ExtensionsPanel {
             while let Ok(status) = workspace_rx.try_recv() {
                 let msg = match &status {
                     WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
-                    WorkspaceStatus::Installing { current, done, total } => {
+                    WorkspaceStatus::Installing {
+                        current,
+                        done,
+                        total,
+                    } => {
                         format!("📦 [{}/{total}] Installing {current}…", done + 1)
                     }
                     WorkspaceStatus::InstallingDep { module, step } => {
@@ -117,7 +123,10 @@ impl ExtensionsPanel {
                 if !msg.is_empty() {
                     self.workspace_log.push(msg);
                 }
-                if matches!(&status, WorkspaceStatus::Done { .. } | WorkspaceStatus::Failed(_)) {
+                if matches!(
+                    &status,
+                    WorkspaceStatus::Done { .. } | WorkspaceStatus::Failed(_)
+                ) {
                     finished = true;
                     reload = matches!(&status, WorkspaceStatus::Done { .. });
                 }

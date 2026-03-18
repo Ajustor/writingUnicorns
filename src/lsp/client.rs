@@ -118,8 +118,7 @@ impl LspClient {
         }))?;
 
         // Wait up to 5 s for the initialize response.
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while std::time::Instant::now() < deadline {
             if let Ok(msg) = transport.receiver.try_recv() {
                 if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
@@ -175,7 +174,9 @@ impl LspClient {
 
     /// Request hover info. Returns the request id; match it in `poll()` results.
     pub fn request_hover(&mut self, uri: &str, line: u32, character: u32) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -191,7 +192,9 @@ impl LspClient {
 
     /// Request completion items. Returns the request id.
     pub fn request_completions(&mut self, uri: &str, line: u32, character: u32) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -207,7 +210,9 @@ impl LspClient {
 
     /// Request go-to-definition. Returns the request id.
     pub fn request_definition(&mut self, uri: &str, line: u32, character: u32) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -237,7 +242,9 @@ impl LspClient {
             }
         }
 
-        let Some(inner) = &mut self.inner else { return vec![] };
+        let Some(inner) = &mut self.inner else {
+            return vec![];
+        };
         let mut results = Vec::new();
 
         while let Ok(msg) = inner.transport.receiver.try_recv() {
@@ -267,14 +274,16 @@ impl LspClient {
         if self.is_connected || self.reconnect_rx.is_some() {
             return false;
         }
-        let Some(ref crash_time) = self.last_crash_time else { return false };
-        let delay = std::time::Duration::from_secs(
-            (2u64 << self.restart_attempts.min(4)).min(30),
-        );
+        let Some(ref crash_time) = self.last_crash_time else {
+            return false;
+        };
+        let delay = std::time::Duration::from_secs((2u64 << self.restart_attempts.min(4)).min(30));
         if crash_time.elapsed() < delay {
             return false;
         }
-        let Some((cmd, args, workspace)) = self.restart_cmd.clone() else { return false };
+        let Some((cmd, args, workspace)) = self.restart_cmd.clone() else {
+            return false;
+        };
 
         self.restart_attempts += 1;
         let (tx, rx) = mpsc::channel();
@@ -308,8 +317,7 @@ impl LspClient {
             {
                 return;
             }
-            let deadline =
-                std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             while std::time::Instant::now() < deadline {
                 if let Ok(msg) = transport.receiver.try_recv() {
                     if msg.get("id").and_then(|v| v.as_u64()) == Some(id) {
@@ -443,7 +451,9 @@ impl LspClient {
 
     /// Request document symbols. Returns the request id.
     pub fn request_document_symbols(&mut self, uri: &str) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -498,7 +508,9 @@ impl LspClient {
 
     /// Request find-all-references. Returns the request id.
     pub fn request_references(&mut self, uri: &str, line: u32, character: u32) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -531,7 +543,9 @@ impl LspClient {
 
     /// Request rename. Returns the request id.
     pub fn request_rename(&mut self, uri: &str, line: u32, character: u32, new_name: &str) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -549,7 +563,9 @@ impl LspClient {
     /// Parse a rename response into a list of (file_path, edits).
     /// Each edit is (line, start_col, end_col, new_text).
     #[allow(clippy::type_complexity)]
-    pub fn apply_rename(response: &Value) -> Vec<(std::path::PathBuf, Vec<(u32, u32, u32, String)>)> {
+    pub fn apply_rename(
+        response: &Value,
+    ) -> Vec<(std::path::PathBuf, Vec<(u32, u32, u32, String)>)> {
         let result = match response.get("result") {
             Some(r) => r,
             None => return vec![],
@@ -566,7 +582,8 @@ impl LspClient {
             if let Some(arr) = edits_val.as_array() {
                 for edit in arr {
                     let line = edit["range"]["start"]["line"].as_u64().unwrap_or(0) as u32;
-                    let start_col = edit["range"]["start"]["character"].as_u64().unwrap_or(0) as u32;
+                    let start_col =
+                        edit["range"]["start"]["character"].as_u64().unwrap_or(0) as u32;
                     let end_col = edit["range"]["end"]["character"].as_u64().unwrap_or(0) as u32;
                     let new_text = edit["newText"].as_str().unwrap_or("").to_string();
                     file_edits.push((line, start_col, end_col, new_text));
@@ -578,18 +595,29 @@ impl LspClient {
     }
 
     /// Request code actions. Returns the request id.
-    pub fn request_code_actions(&mut self, uri: &str, line: u32, character: u32, diag_messages: &[String]) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+    pub fn request_code_actions(
+        &mut self,
+        uri: &str,
+        line: u32,
+        character: u32,
+        diag_messages: &[String],
+    ) -> u64 {
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
-        let diagnostics_json: Vec<Value> = diag_messages.iter().map(|msg| {
-            json!({
-                "range": {
-                    "start": { "line": line, "character": character },
-                    "end": { "line": line, "character": character }
-                },
-                "message": msg
+        let diagnostics_json: Vec<Value> = diag_messages
+            .iter()
+            .map(|msg| {
+                json!({
+                    "range": {
+                        "start": { "line": line, "character": character },
+                        "end": { "line": line, "character": character }
+                    },
+                    "message": msg
+                })
             })
-        }).collect();
+            .collect();
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -617,19 +645,28 @@ impl LspClient {
         let mut actions = Vec::new();
         for item in result {
             let title = item["title"].as_str().unwrap_or("").to_string();
-            if title.is_empty() { continue; }
+            if title.is_empty() {
+                continue;
+            }
             let kind = item["kind"].as_str().map(|s| s.to_string());
-            let command = item["command"]["command"].as_str()
+            let command = item["command"]["command"]
+                .as_str()
                 .or_else(|| item["command"].as_str())
                 .map(|s| s.to_string());
-            actions.push(CodeAction { title, kind, command });
+            actions.push(CodeAction {
+                title,
+                kind,
+                command,
+            });
         }
         actions
     }
 
     /// Request signature help. Returns the request id.
     pub fn request_signature_help(&mut self, uri: &str, line: u32, character: u32) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -644,7 +681,9 @@ impl LspClient {
     }
 
     pub fn request_formatting(&mut self, uri: &str, tab_size: u32, insert_spaces: bool) -> u64 {
-        let Some(inner) = &mut self.inner else { return 0 };
+        let Some(inner) = &mut self.inner else {
+            return 0;
+        };
         let id = Self::next_id(inner);
         let _ = inner.transport.send(&json!({
             "jsonrpc": "2.0",
@@ -666,19 +705,22 @@ impl LspClient {
         let Some(edits) = response.get("result").and_then(|r| r.as_array()) else {
             return vec![];
         };
-        edits.iter().filter_map(|edit| {
-            let range = edit.get("range")?;
-            let start = range.get("start")?;
-            let end = range.get("end")?;
-            let new_text = edit.get("newText")?.as_str()?.to_string();
-            Some((
-                start["line"].as_u64()? as u32,
-                start["character"].as_u64()? as u32,
-                end["line"].as_u64()? as u32,
-                end["character"].as_u64()? as u32,
-                new_text,
-            ))
-        }).collect()
+        edits
+            .iter()
+            .filter_map(|edit| {
+                let range = edit.get("range")?;
+                let start = range.get("start")?;
+                let end = range.get("end")?;
+                let new_text = edit.get("newText")?.as_str()?.to_string();
+                Some((
+                    start["line"].as_u64()? as u32,
+                    start["character"].as_u64()? as u32,
+                    end["line"].as_u64()? as u32,
+                    end["character"].as_u64()? as u32,
+                    new_text,
+                ))
+            })
+            .collect()
     }
 
     /// Parse a signatureHelp response into a display string.
@@ -687,9 +729,12 @@ impl LspClient {
         let signatures = result.get("signatures")?.as_array()?;
         let sig = signatures.first()?;
         let label = sig["label"].as_str()?;
-        if label.is_empty() { return None; }
+        if label.is_empty() {
+            return None;
+        }
         // Optionally highlight the active parameter
-        let active_param = result["activeParameter"].as_u64()
+        let active_param = result["activeParameter"]
+            .as_u64()
             .or_else(|| sig["activeParameter"].as_u64());
         if let Some(param_idx) = active_param {
             if let Some(params) = sig["parameters"].as_array() {

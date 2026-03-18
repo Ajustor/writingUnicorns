@@ -1,5 +1,5 @@
-use egui::Color32;
 use super::colors::{ansi_color, color_256};
+use egui::Color32;
 
 pub(super) const DEFAULT_FG: Color32 = Color32::from_rgb(212, 212, 212);
 

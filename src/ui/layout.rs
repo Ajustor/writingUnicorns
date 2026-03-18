@@ -173,7 +173,10 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
         .exact_height(22.0)
         .show(ctx, |ui| {
             let lsp_status = {
-                let ext = app.editor.current_path.as_ref()
+                let ext = app
+                    .editor
+                    .current_path
+                    .as_ref()
                     .and_then(|p| p.extension())
                     .and_then(|e| e.to_str())
                     .unwrap_or("");
@@ -183,7 +186,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                     Some(_) => LspStatus::Connecting,
                 }
             };
-            app.status_bar.show(ui, &app.editor, &app.git_status, lsp_status);
+            app.status_bar
+                .show(ui, &app.editor, &app.git_status, lsp_status);
         });
 
     if app.show_terminal {
@@ -558,7 +562,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                                     if let Some(root) = &mut app.file_tree.root {
                                         root.load_children();
                                     }
-                                    let name = new_path.file_name()
+                                    let name = new_path
+                                        .file_name()
                                         .map(|n| n.to_string_lossy().to_string())
                                         .unwrap_or_default();
                                     app.file_tree.rename_state = Some((new_path.clone(), name));
@@ -570,7 +575,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                                     if let Some(root) = &mut app.file_tree.root {
                                         root.load_children();
                                     }
-                                    let name = new_path.file_name()
+                                    let name = new_path
+                                        .file_name()
                                         .map(|n| n.to_string_lossy().to_string())
                                         .unwrap_or_default();
                                     app.file_tree.rename_state = Some((new_path, name));
@@ -584,7 +590,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                                     } else {
                                         path.parent().map(|p| p.to_path_buf()).unwrap_or(path)
                                     };
-                                    let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+                                    let _ =
+                                        std::process::Command::new("xdg-open").arg(&target).spawn();
                                 }
                             }
                         }
@@ -639,17 +646,23 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                         }
                         if action.step_over {
                             if let Some(tid) = app.dap.paused_thread_id() {
-                                if let Some(sess) = &mut app.dap.session { sess.next_step(tid); }
+                                if let Some(sess) = &mut app.dap.session {
+                                    sess.next_step(tid);
+                                }
                             }
                         }
                         if action.step_in {
                             if let Some(tid) = app.dap.paused_thread_id() {
-                                if let Some(sess) = &mut app.dap.session { sess.step_in(tid); }
+                                if let Some(sess) = &mut app.dap.session {
+                                    sess.step_in(tid);
+                                }
                             }
                         }
                         if action.step_out {
                             if let Some(tid) = app.dap.paused_thread_id() {
-                                if let Some(sess) = &mut app.dap.session { sess.step_out(tid); }
+                                if let Some(sess) = &mut app.dap.session {
+                                    sess.step_out(tid);
+                                }
                             }
                         }
                         if action.pause {
@@ -666,8 +679,7 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                         let symbols = app.outline_symbols.clone();
                         if symbols.is_empty() {
                             ui.label(
-                                egui::RichText::new("No symbols found")
-                                    .color(egui::Color32::GRAY),
+                                egui::RichText::new("No symbols found").color(egui::Color32::GRAY),
                             );
                         } else {
                             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -721,7 +733,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let mut nav_to: Option<(std::path::PathBuf, usize)> = None;
                     for (path, line, preview) in &refs {
-                        let filename = path.file_name()
+                        let filename = path
+                            .file_name()
                             .map(|n| n.to_string_lossy().to_string())
                             .unwrap_or_default();
                         let label = format!("{}:{} {}", filename, line + 1, preview);
@@ -812,12 +825,16 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                     );
                     crumb_ui.add_space(8.0);
                     // Show up to last 3 path components
-                    let components: Vec<String> = path.components()
+                    let components: Vec<String> = path
+                        .components()
                         .map(|c| c.as_os_str().to_string_lossy().to_string())
                         .filter(|s| !s.is_empty() && s != "/")
                         .collect();
-                    let shown: Vec<&str> = components.iter()
-                        .rev().take(3).rev()
+                    let shown: Vec<&str> = components
+                        .iter()
+                        .rev()
+                        .take(3)
+                        .rev()
                         .map(|s| s.as_str())
                         .collect();
                     for (i, part) in shown.iter().enumerate() {
@@ -852,7 +869,9 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                 // Update current symbol from outline
                 {
                     let (cur_row, _) = app.editor.cursor.position();
-                    app.editor.current_symbol = app.outline_symbols.iter()
+                    app.editor.current_symbol = app
+                        .outline_symbols
+                        .iter()
                         .rfind(|s| s.line as usize <= cur_row)
                         .map(|s| s.name.clone());
                 }
@@ -872,7 +891,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                             .collect()
                     })
                     .unwrap_or_default();
-                app.editor.show(ui, &app.config, &app.plugin_manager, lsp_hover, &bp_lines);
+                app.editor
+                    .show(ui, &app.config, &app.plugin_manager, lsp_hover, &bp_lines);
             } else {
                 welcome_screen(ui);
             }

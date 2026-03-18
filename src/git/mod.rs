@@ -1,5 +1,5 @@
 pub mod blame;
-pub use blame::{BlameEntry, blame_file};
+pub use blame::{blame_file, BlameEntry};
 
 use std::path::PathBuf;
 

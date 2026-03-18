@@ -15,8 +15,7 @@ pub struct FfiLangPlugin {
     extensions: Vec<String>,
     lsp_server: Option<String>,
     lsp_args: Vec<String>,
-    tokenize_fn:
-        Option<unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_char>,
+    tokenize_fn: Option<unsafe extern "C" fn(*const std::ffi::c_char) -> *mut std::ffi::c_char>,
     free_fn: Option<unsafe extern "C" fn(*mut std::ffi::c_char)>,
     hover_fn: Option<
         unsafe extern "C" fn(
@@ -187,7 +186,6 @@ impl Plugin for FfiLangPlugin {
 /// Parse the JSON array returned by `tokenize_line_ffi`.
 /// Format: `[{"text":"...","kind":"keyword"}, ...]`
 fn parse_token_json(json: &str) -> Option<Vec<Token>> {
-
     let json = json.trim();
     if !json.starts_with('[') || !json.ends_with(']') {
         return None;

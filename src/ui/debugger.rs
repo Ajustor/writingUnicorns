@@ -35,11 +35,7 @@ pub struct DebugPanelAction {
 }
 
 impl DebuggerPanel {
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        dap: &DapManager,
-    ) -> DebugPanelAction {
+    pub fn show(&mut self, ui: &mut egui::Ui, dap: &DapManager) -> DebugPanelAction {
         let mut action = DebugPanelAction::default();
         let state = dap.session_state();
         let is_active = dap.is_active();
@@ -48,24 +44,46 @@ impl DebuggerPanel {
 
         // ── Toolbar ──────────────────────────────────────────────────────────
         ui.horizontal(|ui| {
-            let start_label = if is_paused { "▶ Continue (F5)" } else { "▶ Start (F5)" };
+            let start_label = if is_paused {
+                "▶ Continue (F5)"
+            } else {
+                "▶ Start (F5)"
+            };
             let start_enabled = !is_active || is_paused;
-            if ui.add_enabled(start_enabled, egui::Button::new(start_label)).clicked() {
+            if ui
+                .add_enabled(start_enabled, egui::Button::new(start_label))
+                .clicked()
+            {
                 action.start_or_continue = true;
             }
-            if ui.add_enabled(is_active, egui::Button::new("⏸ Pause")).clicked() {
+            if ui
+                .add_enabled(is_active, egui::Button::new("⏸ Pause"))
+                .clicked()
+            {
                 action.pause = true;
             }
-            if ui.add_enabled(is_paused, egui::Button::new("⤵ Over (F10)")).clicked() {
+            if ui
+                .add_enabled(is_paused, egui::Button::new("⤵ Over (F10)"))
+                .clicked()
+            {
                 action.step_over = true;
             }
-            if ui.add_enabled(is_paused, egui::Button::new("↓ In (F11)")).clicked() {
+            if ui
+                .add_enabled(is_paused, egui::Button::new("↓ In (F11)"))
+                .clicked()
+            {
                 action.step_in = true;
             }
-            if ui.add_enabled(is_paused, egui::Button::new("↑ Out (⇧F11)")).clicked() {
+            if ui
+                .add_enabled(is_paused, egui::Button::new("↑ Out (⇧F11)"))
+                .clicked()
+            {
                 action.step_out = true;
             }
-            if ui.add_enabled(is_active, egui::Button::new("■ Stop")).clicked() {
+            if ui
+                .add_enabled(is_active, egui::Button::new("■ Stop"))
+                .clicked()
+            {
                 action.stop = true;
             }
         });
@@ -106,19 +124,27 @@ impl DebuggerPanel {
                         let label = format!(
                             "{}  {}:{}",
                             frame.name,
-                            frame.file.as_ref().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                            frame
+                                .file
+                                .as_ref()
+                                .and_then(|f| f.file_name())
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default(),
                             frame.line
                         );
                         let is_top = i == 0;
                         let response = ui.selectable_label(
                             is_top,
-                            RichText::new(&label)
-                                .size(11.0)
-                                .color(if is_top { Color32::WHITE } else { Color32::from_gray(180) }),
+                            RichText::new(&label).size(11.0).color(if is_top {
+                                Color32::WHITE
+                            } else {
+                                Color32::from_gray(180)
+                            }),
                         );
                         if response.clicked() {
                             if let Some(ref file) = frame.file {
-                                action.navigate_to = Some((file.clone(), frame.line.saturating_sub(1)));
+                                action.navigate_to =
+                                    Some((file.clone(), frame.line.saturating_sub(1)));
                             }
                         }
                     }

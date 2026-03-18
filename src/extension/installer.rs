@@ -18,13 +18,26 @@ pub enum WorkspaceStatus {
     /// Running `cargo build --release` on the whole workspace.
     Building,
     /// Copying one module into the extensions directory.
-    Installing { current: String, done: usize, total: usize },
+    Installing {
+        current: String,
+        done: usize,
+        total: usize,
+    },
     /// Installing an external dependency for a module.
-    InstallingDep { module: String, step: String },
+    InstallingDep {
+        module: String,
+        step: String,
+    },
     /// One module failed (non-fatal — install continues for the rest).
-    ModuleFailed { name: String, reason: String },
+    ModuleFailed {
+        name: String,
+        reason: String,
+    },
     /// All done — `installed` out of `total` modules were installed.
-    Done { installed: usize, total: usize },
+    Done {
+        installed: usize,
+        total: usize,
+    },
     /// Fatal error (workspace-level).
     Failed(String),
 }
@@ -44,7 +57,9 @@ pub fn install_from_workspace(
         let cargo_toml_str = match std::fs::read_to_string(&cargo_toml_path) {
             Ok(s) => s,
             Err(e) => {
-                let _ = tx.send(WorkspaceStatus::Failed(format!("Cannot read Cargo.toml: {e}")));
+                let _ = tx.send(WorkspaceStatus::Failed(format!(
+                    "Cannot read Cargo.toml: {e}"
+                )));
                 return;
             }
         };
@@ -79,7 +94,10 @@ pub fn install_from_workspace(
         match build_out {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
-                let err: String = String::from_utf8_lossy(&out.stderr).chars().take(400).collect();
+                let err: String = String::from_utf8_lossy(&out.stderr)
+                    .chars()
+                    .take(400)
+                    .collect();
                 let _ = tx.send(WorkspaceStatus::Failed(format!("Build failed:\n{err}")));
                 return;
             }
@@ -165,12 +183,15 @@ pub fn install_from_workspace(
                 });
                 continue;
             }
-            write_source(&dest_dir, &ExtensionSource {
-                kind: SourceKind::Workspace,
-                path: Some(workspace_path.to_string_lossy().to_string()),
-                member: Some(member.clone()),
-                url: None,
-            });
+            write_source(
+                &dest_dir,
+                &ExtensionSource {
+                    kind: SourceKind::Workspace,
+                    path: Some(workspace_path.to_string_lossy().to_string()),
+                    member: Some(member.clone()),
+                    url: None,
+                },
+            );
 
             // Install external dependencies declared in the manifest.
             let member_name = member.clone();
@@ -334,12 +355,15 @@ impl InstallJob {
                 }
             }
 
-            write_source(&dest, &ExtensionSource {
-                kind: SourceKind::Git,
-                url: Some(repo_url.clone()),
-                path: None,
-                member: None,
-            });
+            write_source(
+                &dest,
+                &ExtensionSource {
+                    kind: SourceKind::Git,
+                    url: Some(repo_url.clone()),
+                    path: None,
+                    member: None,
+                },
+            );
 
             // 5. Install external dependencies.
             install_deps(&manifest.dependencies, |step| {
@@ -418,9 +442,7 @@ pub fn install_from_folder(
                 Ok(out) => {
                     let err = String::from_utf8_lossy(&out.stderr).to_string();
                     let truncated: String = err.chars().take(200).collect();
-                    let _ = tx.send(InstallStatus::Failed(format!(
-                        "Build failed: {truncated}"
-                    )));
+                    let _ = tx.send(InstallStatus::Failed(format!("Build failed: {truncated}")));
                     return;
                 }
                 Err(e) => {
@@ -447,12 +469,15 @@ pub fn install_from_folder(
             let _ = tx.send(InstallStatus::Failed(format!("Cannot copy manifest: {e}")));
             return;
         }
-        write_source(&dest_dir, &ExtensionSource {
-            kind: SourceKind::Folder,
-            path: Some(folder.to_string_lossy().to_string()),
-            member: None,
-            url: None,
-        });
+        write_source(
+            &dest_dir,
+            &ExtensionSource {
+                kind: SourceKind::Folder,
+                path: Some(folder.to_string_lossy().to_string()),
+                member: None,
+                url: None,
+            },
+        );
 
         // Install external dependencies.
         install_deps(&manifest.dependencies, |step| {
@@ -517,7 +542,10 @@ fn install_deps(
             Ok(out) => {
                 errors.push(format!(
                     "npm: {}",
-                    String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
                 ));
             }
             Err(e) => errors.push(format!("npm not found: {e}")),
@@ -536,7 +564,10 @@ fn install_deps(
                 Ok(out) if out.status.success() => {}
                 Ok(out) => errors.push(format!(
                     "pip3 {pkg}: {}",
-                    String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
                 )),
                 Err(e) => errors.push(format!("pip3 not found: {e}")),
             }
@@ -555,7 +586,10 @@ fn install_deps(
                 Ok(out) if out.status.success() => {}
                 Ok(out) => errors.push(format!(
                     "cargo install {pkg}: {}",
-                    String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
                 )),
                 Err(e) => errors.push(format!("cargo not found: {e}")),
             }
@@ -584,7 +618,10 @@ fn install_deps(
                 Ok(out) if out.status.success() => {}
                 Ok(out) => errors.push(format!(
                     "go install {pkg}: {}",
-                    String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+                    String::from_utf8_lossy(&out.stderr)
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
                 )),
                 Err(e) => errors.push(format!("go not found: {e}")),
             }

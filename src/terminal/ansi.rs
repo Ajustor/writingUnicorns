@@ -1,5 +1,5 @@
-use vte::{Params, Perform};
 use super::screen_buffer::ScreenBuffer;
+use vte::{Params, Perform};
 
 pub(super) struct AnsiPerformer {
     pub(super) buf: ScreenBuffer,

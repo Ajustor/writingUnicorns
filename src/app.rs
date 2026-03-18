@@ -135,7 +135,10 @@ impl WritingUnicorns {
                     lib_path, lsp_server, lsp_args,
                 ) {
                     Ok(plugin) => plugin_manager.register(Box::new(plugin)),
-                    Err(e) => eprintln!("Failed to load extension {}: {e}", ext.manifest.extension.id),
+                    Err(e) => eprintln!(
+                        "Failed to load extension {}: {e}",
+                        ext.manifest.extension.id
+                    ),
                 }
             }
         }
@@ -309,7 +312,8 @@ impl WritingUnicorns {
             if let Some(workspace) = self.workspace_path.clone() {
                 // Prefer the plugin manager (covers installed FFI modules), then builtins.
                 if let Some((cmd, args)) = self.plugin_manager.lsp_server_for_ext(ext) {
-                    self.lsp.ensure_started_with_cmd(ext, &cmd, &args, &workspace);
+                    self.lsp
+                        .ensure_started_with_cmd(ext, &cmd, &args, &workspace);
                 } else {
                     self.lsp.ensure_started(ext, &workspace);
                 }
@@ -336,9 +340,16 @@ impl WritingUnicorns {
     /// Cycle to the next open tab (Ctrl+Tab).
     pub fn cycle_tab_next(&mut self) {
         let n = self.tab_manager.tabs.len();
-        if n < 2 { return; }
+        if n < 2 {
+            return;
+        }
         if let Some(active_id) = self.tab_manager.active_tab {
-            let pos = self.tab_manager.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+            let pos = self
+                .tab_manager
+                .tabs
+                .iter()
+                .position(|t| t.id == active_id)
+                .unwrap_or(0);
             let next_pos = (pos + 1) % n;
             let next_id = self.tab_manager.tabs[next_pos].id;
             self.tab_manager.active_tab = Some(next_id);
@@ -349,9 +360,16 @@ impl WritingUnicorns {
     /// Cycle to the previous open tab (Ctrl+Shift+Tab).
     pub fn cycle_tab_prev(&mut self) {
         let n = self.tab_manager.tabs.len();
-        if n < 2 { return; }
+        if n < 2 {
+            return;
+        }
         if let Some(active_id) = self.tab_manager.active_tab {
-            let pos = self.tab_manager.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+            let pos = self
+                .tab_manager
+                .tabs
+                .iter()
+                .position(|t| t.id == active_id)
+                .unwrap_or(0);
             let prev_pos = if pos == 0 { n - 1 } else { pos - 1 };
             self.tab_manager.active_tab = Some(self.tab_manager.tabs[prev_pos].id);
             self.load_active_tab();
@@ -485,9 +503,7 @@ impl WritingUnicorns {
                 .as_ref()
                 .and_then(|p| p.parent().map(|p| p.to_path_buf()));
             if let Some(dir) = current_dir {
-                if let Some((path, line)) =
-                    search_workspace_for_symbol(&dir, &patterns, 200, 3)
-                {
+                if let Some((path, line)) = search_workspace_for_symbol(&dir, &patterns, 200, 3) {
                     self.open_file_at_line(path, line);
                     return;
                 }
@@ -507,9 +523,8 @@ impl WritingUnicorns {
                 if let Some(client) = self.lsp.get_mut(ext) {
                     if client.is_connected {
                         let uri = format!("file://{}", path.display());
-                        self.pending_references_id = Some(
-                            client.request_references(&uri, row as u32, col as u32)
-                        );
+                        self.pending_references_id =
+                            Some(client.request_references(&uri, row as u32, col as u32));
                     }
                 }
             }
@@ -561,10 +576,20 @@ impl WritingUnicorns {
 
     /// Start a DAP debug session using the language plugin for the current file.
     pub fn start_debug_session(&mut self) {
-        let Some(path) = self.editor.current_path.clone() else { return };
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
-        let Some(cfg) = self.plugin_manager.dap_config_for_ext(&ext) else { return };
-        let workspace = self.workspace_path.clone()
+        let Some(path) = self.editor.current_path.clone() else {
+            return;
+        };
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_string();
+        let Some(cfg) = self.plugin_manager.dap_config_for_ext(&ext) else {
+            return;
+        };
+        let workspace = self
+            .workspace_path
+            .clone()
             .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
         if let Err(e) = self.dap.start_session(&cfg, &workspace, Some(&path)) {
             self.show_terminal = true;
@@ -579,7 +604,9 @@ impl WritingUnicorns {
 
     /// Toggle a breakpoint at the current cursor line.
     pub fn toggle_breakpoint_at_cursor(&mut self) {
-        let Some(path) = self.editor.current_path.clone() else { return };
+        let Some(path) = self.editor.current_path.clone() else {
+            return;
+        };
         let (row, _) = self.editor.cursor.position();
         // Breakpoints are 1-based in DAP.
         self.dap.toggle_breakpoint(&path, row + 1);
@@ -593,13 +620,19 @@ impl WritingUnicorns {
                 if let Some(client) = self.lsp.get_mut(ext) {
                     if client.is_connected {
                         let uri = format!("file://{}", path.display());
-                        let diag_messages: Vec<String> = self.editor.diagnostics.iter()
+                        let diag_messages: Vec<String> = self
+                            .editor
+                            .diagnostics
+                            .iter()
                             .filter(|d| d.line as usize == row)
                             .map(|d| d.message.clone())
                             .collect();
-                        self.pending_code_actions_id = Some(
-                            client.request_code_actions(&uri, row as u32, col as u32, &diag_messages)
-                        );
+                        self.pending_code_actions_id = Some(client.request_code_actions(
+                            &uri,
+                            row as u32,
+                            col as u32,
+                            &diag_messages,
+                        ));
                         self.code_actions_last_request = Some(std::time::Instant::now());
                     }
                 }
@@ -964,17 +997,23 @@ impl eframe::App for WritingUnicorns {
         }
         if want_step_over_f10 {
             if let Some(tid) = self.dap.paused_thread_id() {
-                if let Some(sess) = &mut self.dap.session { sess.next_step(tid); }
+                if let Some(sess) = &mut self.dap.session {
+                    sess.next_step(tid);
+                }
             }
         }
         if want_step_in_f11 {
             if let Some(tid) = self.dap.paused_thread_id() {
-                if let Some(sess) = &mut self.dap.session { sess.step_in(tid); }
+                if let Some(sess) = &mut self.dap.session {
+                    sess.step_in(tid);
+                }
             }
         }
         if want_step_out_shift_f11 {
             if let Some(tid) = self.dap.paused_thread_id() {
-                if let Some(sess) = &mut self.dap.session { sess.step_out(tid); }
+                if let Some(sess) = &mut self.dap.session {
+                    sess.step_out(tid);
+                }
             }
         }
         // Poll the DAP session every frame.
@@ -1002,7 +1041,11 @@ impl eframe::App for WritingUnicorns {
         // Re-open the current file on any reconnected LSP server so it receives diagnostics.
         if !reconnected_exts.is_empty() {
             if let Some(ref path) = self.editor.current_path.clone() {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_string();
                 if reconnected_exts.contains(&ext) {
                     let uri = format!("file://{}", path.display());
                     let content = self.editor.buffer.to_string();
@@ -1026,9 +1069,9 @@ impl eframe::App for WritingUnicorns {
                 } else if Some(id) == self.pending_completion_id {
                     let items = LspClient::parse_completions(&response);
                     if !items.is_empty() {
-                        self.editor.autocomplete.set_lsp_suggestions(
-                            items.iter().map(|i| i.label.clone()).collect(),
-                        );
+                        self.editor
+                            .autocomplete
+                            .set_lsp_suggestions(items.iter().map(|i| i.label.clone()).collect());
                     }
                     self.pending_completion_id = None;
                 } else if Some(id) == self.pending_symbols_id {
@@ -1036,12 +1079,18 @@ impl eframe::App for WritingUnicorns {
                     self.pending_symbols_id = None;
                 } else if Some(id) == self.pending_references_id {
                     let refs = LspClient::parse_references(&response);
-                    self.references_result = refs.into_iter().map(|(path, line)| {
-                        let preview = std::fs::read_to_string(&path).ok()
-                            .and_then(|s| s.lines().nth(line as usize).map(|l| l.trim().to_string()))
-                            .unwrap_or_default();
-                        (path, line, preview)
-                    }).collect();
+                    self.references_result = refs
+                        .into_iter()
+                        .map(|(path, line)| {
+                            let preview = std::fs::read_to_string(&path)
+                                .ok()
+                                .and_then(|s| {
+                                    s.lines().nth(line as usize).map(|l| l.trim().to_string())
+                                })
+                                .unwrap_or_default();
+                            (path, line, preview)
+                        })
+                        .collect();
                     self.show_references = !self.references_result.is_empty();
                     self.pending_references_id = None;
                 } else if Some(id) == self.rename_pending_id {
@@ -1156,14 +1205,16 @@ impl eframe::App for WritingUnicorns {
                 let supported = matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go");
                 if supported && self.pending_symbols_id.is_none() {
                     let version_changed = self.editor.content_version != self.outline_last_version;
-                    let time_elapsed = self.outline_last_request
+                    let time_elapsed = self
+                        .outline_last_request
                         .map(|t| t.elapsed() > std::time::Duration::from_secs(2))
                         .unwrap_or(true);
                     if version_changed || time_elapsed {
                         if let Some(client) = self.lsp.get_mut(ext) {
                             if client.is_connected {
                                 let uri = format!("file://{}", path.display());
-                                self.pending_symbols_id = Some(client.request_document_symbols(&uri));
+                                self.pending_symbols_id =
+                                    Some(client.request_document_symbols(&uri));
                                 self.outline_last_version = self.editor.content_version;
                                 self.outline_last_request = Some(std::time::Instant::now());
                             }
@@ -1183,9 +1234,8 @@ impl eframe::App for WritingUnicorns {
                             let uri = format!("file://{}", path.display());
                             let tab_size = self.editor.detected_indent_size as u32;
                             let insert_spaces = self.editor.detected_indent_spaces;
-                            self.pending_format_id = Some(
-                                client.request_formatting(&uri, tab_size, insert_spaces)
-                            );
+                            self.pending_format_id =
+                                Some(client.request_formatting(&uri, tab_size, insert_spaces));
                         }
                     }
                 }
@@ -1201,9 +1251,8 @@ impl eframe::App for WritingUnicorns {
                             let uri = format!("file://{}", path.display());
                             let row = self.editor.signature_help_row;
                             let col = self.editor.signature_help_col;
-                            self.pending_signature_id = Some(
-                                client.request_signature_help(&uri, row, col)
-                            );
+                            self.pending_signature_id =
+                                Some(client.request_signature_help(&uri, row, col));
                             self.editor.signature_help_request_pending = false;
                         }
                     }
@@ -1214,10 +1263,15 @@ impl eframe::App for WritingUnicorns {
         // Auto-trigger code actions when cursor line has diagnostics.
         {
             let (cur_row, _) = self.editor.cursor.position();
-            let has_diag = self.editor.diagnostics.iter().any(|d| d.line as usize == cur_row);
+            let has_diag = self
+                .editor
+                .diagnostics
+                .iter()
+                .any(|d| d.line as usize == cur_row);
             let should_request = has_diag
                 && self.pending_code_actions_id.is_none()
-                && self.code_actions_last_request
+                && self
+                    .code_actions_last_request
                     .map(|t| t.elapsed() > std::time::Duration::from_secs(1))
                     .unwrap_or(true);
             if should_request {
@@ -1237,12 +1291,14 @@ impl eframe::App for WritingUnicorns {
         }
 
         // Global shortcuts for new features.
-        let (want_find_refs, want_rename, want_code_actions, want_blame) = ctx.input(|i| (
-            i.key_pressed(egui::Key::F12) && i.modifiers.shift,
-            i.key_pressed(egui::Key::F2),
-            i.key_pressed(egui::Key::Period) && i.modifiers.ctrl,
-            i.key_pressed(egui::Key::B) && i.modifiers.ctrl && i.modifiers.alt,
-        ));
+        let (want_find_refs, want_rename, want_code_actions, want_blame) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::F12) && i.modifiers.shift,
+                i.key_pressed(egui::Key::F2),
+                i.key_pressed(egui::Key::Period) && i.modifiers.ctrl,
+                i.key_pressed(egui::Key::B) && i.modifiers.ctrl && i.modifiers.alt,
+            )
+        });
         if want_find_refs {
             self.request_find_references();
         }
@@ -1298,7 +1354,7 @@ impl eframe::App for WritingUnicorns {
                                 let uri = format!("file://{}", path.display());
                                 let name = self.rename_new_name.clone();
                                 self.rename_pending_id = Some(
-                                    client.request_rename(&uri, row as u32, col as u32, &name)
+                                    client.request_rename(&uri, row as u32, col as u32, &name),
                                 );
                             }
                         }
@@ -1324,7 +1380,9 @@ impl eframe::App for WritingUnicorns {
                             close = true;
                         }
                     }
-                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    if ui.button("Cancel").clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                    {
                         close = true;
                     }
                 });
@@ -1380,8 +1438,9 @@ impl eframe::App for WritingUnicorns {
             .next_back();
 
         if self.command_palette.is_open() {
-            let (opened_file, cmd) = self.command_palette
-                .show(ctx, &mut self.file_tree, &mut self.workspace_path);
+            let (opened_file, cmd) =
+                self.command_palette
+                    .show(ctx, &mut self.file_tree, &mut self.workspace_path);
             if let Some(path) = opened_file {
                 self.open_file(path);
             }
@@ -1389,19 +1448,21 @@ impl eframe::App for WritingUnicorns {
                 use crate::ui::palette::PaletteCommand;
                 match cmd {
                     PaletteCommand::ToggleTerminal => self.show_terminal = !self.show_terminal,
-                    PaletteCommand::ToggleSidebar  => self.show_sidebar  = !self.show_sidebar,
-                    PaletteCommand::GoToLine       => self.editor.show_goto_line = true,
-                    PaletteCommand::SaveFile       => { let _ = self.editor.save(); }
-                    PaletteCommand::NewFile        => self.open_new_file(),
-                    PaletteCommand::OpenFolder     => {
+                    PaletteCommand::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
+                    PaletteCommand::GoToLine => self.editor.show_goto_line = true,
+                    PaletteCommand::SaveFile => {
+                        let _ = self.editor.save();
+                    }
+                    PaletteCommand::NewFile => self.open_new_file(),
+                    PaletteCommand::OpenFolder => {
                         self.folder_pending = Some(self.trigger_open_folder());
                     }
-                    PaletteCommand::OpenSettings   => {
+                    PaletteCommand::OpenSettings => {
                         self.tab_manager.open_settings();
                         self.settings_panel.open = true;
                     }
-                    PaletteCommand::Find           => self.editor.show_find = true,
-                    PaletteCommand::FindReplace    => {
+                    PaletteCommand::Find => self.editor.show_find = true,
+                    PaletteCommand::FindReplace => {
                         self.editor.show_find = true;
                         self.editor.show_replace = true;
                     }

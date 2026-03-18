@@ -86,7 +86,8 @@ impl DapClient {
         // Remove existing entry for this file then push new one.
         self.pending_breakpoints.retain(|(f, _)| f != file);
         if !lines.is_empty() {
-            self.pending_breakpoints.push((file.to_path_buf(), lines.to_vec()));
+            self.pending_breakpoints
+                .push((file.to_path_buf(), lines.to_vec()));
         }
         if self.initialized {
             self.flush_breakpoints_for(file, lines);
@@ -263,15 +264,10 @@ impl DapClient {
                             self.call_stack.clear();
                             if let Some(frames) = msg["body"]["stackFrames"].as_array() {
                                 for f in frames {
-                                    let file = f["source"]["path"]
-                                        .as_str()
-                                        .map(PathBuf::from);
+                                    let file = f["source"]["path"].as_str().map(PathBuf::from);
                                     self.call_stack.push(StackFrame {
                                         id: f["id"].as_i64().unwrap_or(0),
-                                        name: f["name"]
-                                            .as_str()
-                                            .unwrap_or("<unknown>")
-                                            .to_string(),
+                                        name: f["name"].as_str().unwrap_or("<unknown>").to_string(),
                                         file,
                                         line: f["line"].as_u64().unwrap_or(1) as usize,
                                     });
@@ -294,7 +290,9 @@ impl DapClient {
                         "scopes" if Some(seq) == self.pending_scopes_seq => {
                             self.pending_scopes_seq = None;
                             // Request variables for the first scope (locals).
-                            if let Some(scope) = msg["body"]["scopes"].as_array().and_then(|a| a.first()) {
+                            if let Some(scope) =
+                                msg["body"]["scopes"].as_array().and_then(|a| a.first())
+                            {
                                 let vars_ref = scope["variablesReference"].as_i64().unwrap_or(0);
                                 if vars_ref > 0 {
                                     let seq = self.next_seq();

@@ -627,8 +627,12 @@ impl Editor {
 
     /// Replace the first occurrence of `find_query` on the current match line.
     pub fn replace_current(&mut self) {
-        if self.find_query.is_empty() { return; }
-        if self.find_matches.is_empty() { return; }
+        if self.find_query.is_empty() {
+            return;
+        }
+        if self.find_matches.is_empty() {
+            return;
+        }
         let row = self.find_matches[self.find_current];
         let line = self.buffer.line(row);
         let query_lc = self.find_query.to_lowercase();
@@ -650,7 +654,9 @@ impl Editor {
 
     /// Replace all occurrences of `find_query` with `replace_query`.
     pub fn replace_all_matches(&mut self) {
-        if self.find_query.is_empty() { return; }
+        if self.find_query.is_empty() {
+            return;
+        }
         let query_lc = self.find_query.to_lowercase();
         let q_len = self.find_query.chars().count();
         let rep = self.replace_query.clone();
@@ -712,7 +718,8 @@ impl Editor {
         }
         // Jump to the first match at or after the cursor row, or wrap to first.
         if !self.find_matches.is_empty() {
-            self.find_current = self.find_matches
+            self.find_current = self
+                .find_matches
                 .iter()
                 .position(|&r| r >= cursor_row)
                 .unwrap_or(0);
@@ -946,7 +953,11 @@ impl Editor {
                     ui.horizontal(|ui| {
                         // Toggle replace row
                         let rep_icon = if self.show_replace { "▴" } else { "▾" };
-                        if ui.small_button(rep_icon).on_hover_text("Toggle replace").clicked() {
+                        if ui
+                            .small_button(rep_icon)
+                            .on_hover_text("Toggle replace")
+                            .clicked()
+                        {
                             self.show_replace = !self.show_replace;
                         }
                         if ui.button("✕").clicked() {
@@ -957,11 +968,15 @@ impl Editor {
                                 .hint_text("Find…")
                                 .desired_width(160.0),
                         );
-                        if resp.changed() { query_changed = true; }
+                        if resp.changed() {
+                            query_changed = true;
+                        }
                         if resp.lost_focus() {
                             if ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift) {
                                 do_find_next = true;
-                            } else if ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.shift) {
+                            } else if ui
+                                .input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.shift)
+                            {
                                 do_find_prev = true;
                             }
                         }
@@ -971,7 +986,11 @@ impl Editor {
                         } else {
                             egui::Color32::GRAY
                         };
-                        if ui.add(egui::Button::new(egui::RichText::new("Aa").color(cs_color)).frame(false))
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new("Aa").color(cs_color))
+                                    .frame(false),
+                            )
                             .on_hover_text("Case sensitive")
                             .clicked()
                         {
@@ -984,14 +1003,22 @@ impl Editor {
                         } else {
                             egui::Color32::GRAY
                         };
-                        if ui.add(egui::Button::new(egui::RichText::new(".*").color(re_color)).frame(false))
+                        if ui
+                            .add(
+                                egui::Button::new(egui::RichText::new(".*").color(re_color))
+                                    .frame(false),
+                            )
                             .on_hover_text("Use regular expression")
                             .clicked()
                         {
                             self.find_use_regex = !self.find_use_regex;
                             query_changed = true;
                         }
-                        if ui.button("▲").on_hover_text("Previous match (Shift+Enter)").clicked() {
+                        if ui
+                            .button("▲")
+                            .on_hover_text("Previous match (Shift+Enter)")
+                            .clicked()
+                        {
                             do_find_prev = true;
                         }
                         if ui.button("▼").on_hover_text("Next match (Enter)").clicked() {
@@ -1019,8 +1046,12 @@ impl Editor {
                                     .hint_text("Replace…")
                                     .desired_width(160.0),
                             );
-                            if ui.small_button("Replace").clicked() { do_replace = true; }
-                            if ui.small_button("All").clicked() { do_replace_all = true; }
+                            if ui.small_button("Replace").clicked() {
+                                do_replace = true;
+                            }
+                            if ui.small_button("All").clicked() {
+                                do_replace_all = true;
+                            }
                         });
                     }
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -1034,11 +1065,21 @@ impl Editor {
                 self.find_query.clear();
                 self.find_matches.clear();
             }
-            if query_changed { self.update_find_matches(); }
-            if do_find_next { self.find_next(); }
-            if do_find_prev { self.find_prev(); }
-            if do_replace { self.replace_current(); }
-            if do_replace_all { self.replace_all_matches(); }
+            if query_changed {
+                self.update_find_matches();
+            }
+            if do_find_next {
+                self.find_next();
+            }
+            if do_find_prev {
+                self.find_prev();
+            }
+            if do_replace {
+                self.replace_current();
+            }
+            if do_replace_all {
+                self.replace_all_matches();
+            }
         }
 
         // Go to line dialog
@@ -1187,8 +1228,7 @@ impl Editor {
                         let local = mouse_pos - rect.min;
                         let row = ((local.y + self.scroll_offset.y) / line_height) as usize;
                         let row = row.min(self.buffer.num_lines().saturating_sub(1));
-                        let x_in_text =
-                            (local.x - gutter_width + self.scroll_offset.x).max(0.0);
+                        let x_in_text = (local.x - gutter_width + self.scroll_offset.x).max(0.0);
                         let col = (x_in_text / char_width).round() as usize;
                         let col = col.min(self.buffer.line_len(row));
 
@@ -1205,7 +1245,9 @@ impl Editor {
                                 self.hover_lsp_request_pending = false;
                             } else {
                                 // Moved to empty space — start grace period, keep popup visible.
-                                if self.hover_leave_instant.is_none() && self.hover_signature.is_some() {
+                                if self.hover_leave_instant.is_none()
+                                    && self.hover_signature.is_some()
+                                {
                                     self.hover_leave_instant = Some(std::time::Instant::now());
                                 } else if self.hover_signature.is_none() {
                                     self.hover_word = None;
@@ -1222,7 +1264,8 @@ impl Editor {
                 } else if !response.hovered() {
                     // Mouse left the editor — but keep tooltip if mouse is inside the popup.
                     let over_popup = ui.input(|i| {
-                        i.pointer.hover_pos()
+                        i.pointer
+                            .hover_pos()
                             .and_then(|p| self.hover_popup_rect.map(|r| r.contains(p)))
                             .unwrap_or(false)
                     });
@@ -1257,9 +1300,10 @@ impl Editor {
                         ui.ctx().request_repaint();
                     } else {
                         // Still in grace period — keep repainting.
-                        ui.ctx().request_repaint_after(
-                            std::time::Duration::from_millis(HOVER_DISMISS_MS as u64 + 16),
-                        );
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(
+                                HOVER_DISMISS_MS as u64 + 16,
+                            ));
                     }
                 }
 
@@ -1314,16 +1358,16 @@ impl Editor {
                             let local = self.hover_pos - rect.min;
                             let h_row = ((local.y + self.scroll_offset.y) / line_height) as usize;
                             let h_row = h_row.min(self.buffer.num_lines().saturating_sub(1));
-                            let x_in_text = (local.x - gutter_width + self.scroll_offset.x).max(0.0);
+                            let x_in_text =
+                                (local.x - gutter_width + self.scroll_offset.x).max(0.0);
                             let h_col = (x_in_text / char_width).round() as usize;
                             self.hover_row = h_row as u32;
                             self.hover_col = h_col.min(self.buffer.line_len(h_row)) as u32;
                             // Anchor the tooltip below the hovered word — fixed for this hover session.
-                            let anchor_x = rect.min.x + gutter_width
-                                + self.hover_col as f32 * char_width
-                                - self.scroll_offset.x;
-                            let anchor_y = rect.min.y
-                                + (h_row + 1) as f32 * line_height
+                            let anchor_x =
+                                rect.min.x + gutter_width + self.hover_col as f32 * char_width
+                                    - self.scroll_offset.x;
+                            let anchor_y = rect.min.y + (h_row + 1) as f32 * line_height
                                 - self.scroll_offset.y
                                 + 4.0;
                             self.hover_tooltip_anchor = Some(egui::pos2(anchor_x, anchor_y));
@@ -1368,7 +1412,8 @@ impl Editor {
                                             if let Some(close) = close_char {
                                                 // Don't double-close if next char is already the close char
                                                 let (row, col) = self.cursor.position();
-                                                let next_ch = self.buffer.line(row).chars().nth(col);
+                                                let next_ch =
+                                                    self.buffer.line(row).chars().nth(col);
                                                 if next_ch == Some(close) && ch == close {
                                                     // Just skip over — move cursor right
                                                     self.cursor.move_right(&self.buffer);
@@ -1427,7 +1472,8 @@ impl Editor {
                                             self.cursor.clear_selection();
                                             self.extra_cursors.clear();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
                                         egui::Key::Enter if modifiers.ctrl => {
                                             self.buffer.checkpoint();
@@ -1439,7 +1485,8 @@ impl Editor {
                                             self.cursor.clear_selection();
                                             self.extra_cursors.clear();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
                                         egui::Key::Enter => {
                                             if self.autocomplete.visible {
@@ -1464,7 +1511,8 @@ impl Editor {
                                                 self.buffer.replace_line(row - 1, &current);
                                                 self.cursor.row -= 1;
                                                 self.is_modified = true;
-                                                self.content_version = self.content_version.wrapping_add(1);
+                                                self.content_version =
+                                                    self.content_version.wrapping_add(1);
                                             }
                                         }
                                         egui::Key::ArrowDown
@@ -1479,11 +1527,16 @@ impl Editor {
                                                 self.buffer.replace_line(row + 1, &current);
                                                 self.cursor.row += 1;
                                                 self.is_modified = true;
-                                                self.content_version = self.content_version.wrapping_add(1);
+                                                self.content_version =
+                                                    self.content_version.wrapping_add(1);
                                             }
                                         }
                                         // Alt+Up — move current line up (VSCode: Alt+Up)
-                                        egui::Key::ArrowUp if modifiers.alt && !modifiers.shift && !modifiers.ctrl => {
+                                        egui::Key::ArrowUp
+                                            if modifiers.alt
+                                                && !modifiers.shift
+                                                && !modifiers.ctrl =>
+                                        {
                                             let row = self.cursor.row;
                                             if row > 0 {
                                                 self.buffer.checkpoint();
@@ -1493,11 +1546,16 @@ impl Editor {
                                                 self.buffer.replace_line(row - 1, &current);
                                                 self.cursor.row -= 1;
                                                 self.is_modified = true;
-                                                self.content_version = self.content_version.wrapping_add(1);
+                                                self.content_version =
+                                                    self.content_version.wrapping_add(1);
                                             }
                                         }
                                         // Alt+Down — move current line down (VSCode: Alt+Down)
-                                        egui::Key::ArrowDown if modifiers.alt && !modifiers.shift && !modifiers.ctrl => {
+                                        egui::Key::ArrowDown
+                                            if modifiers.alt
+                                                && !modifiers.shift
+                                                && !modifiers.ctrl =>
+                                        {
                                             let row = self.cursor.row;
                                             if row + 1 < self.buffer.num_lines() {
                                                 self.buffer.checkpoint();
@@ -1507,21 +1565,31 @@ impl Editor {
                                                 self.buffer.replace_line(row + 1, &current);
                                                 self.cursor.row += 1;
                                                 self.is_modified = true;
-                                                self.content_version = self.content_version.wrapping_add(1);
+                                                self.content_version =
+                                                    self.content_version.wrapping_add(1);
                                             }
                                         }
                                         // Shift+Alt+Up — duplicate line above (VSCode: Shift+Alt+Up)
-                                        egui::Key::ArrowUp if modifiers.alt && modifiers.shift && !modifiers.ctrl => {
+                                        egui::Key::ArrowUp
+                                            if modifiers.alt
+                                                && modifiers.shift
+                                                && !modifiers.ctrl =>
+                                        {
                                             let row = self.cursor.row;
                                             self.buffer.checkpoint();
                                             let line = self.buffer.line(row);
                                             self.buffer.insert_line(row, &line);
                                             // cursor stays on original (now row+1), but we want it on the duplicate above
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
                                         // Shift+Alt+Down — duplicate line below (VSCode: Shift+Alt+Down)
-                                        egui::Key::ArrowDown if modifiers.alt && modifiers.shift && !modifiers.ctrl => {
+                                        egui::Key::ArrowDown
+                                            if modifiers.alt
+                                                && modifiers.shift
+                                                && !modifiers.ctrl =>
+                                        {
                                             self.duplicate_line();
                                         }
                                         // Ctrl+Alt+Up — add cursor above (VSCode: Ctrl+Alt+Up)
@@ -1530,14 +1598,20 @@ impl Editor {
                                             let (pr, pc) = self.cursor.position();
                                             if pr > 0 {
                                                 let mut c = Cursor::new();
-                                                c.set_position(pr - 1, pc.min(self.buffer.line_len(pr - 1)));
+                                                c.set_position(
+                                                    pr - 1,
+                                                    pc.min(self.buffer.line_len(pr - 1)),
+                                                );
                                                 new_extras.push(c);
                                             }
                                             for ec in &self.extra_cursors {
                                                 let (er, ec_col) = ec.position();
                                                 if er > 0 {
                                                     let mut c = Cursor::new();
-                                                    c.set_position(er - 1, ec_col.min(self.buffer.line_len(er - 1)));
+                                                    c.set_position(
+                                                        er - 1,
+                                                        ec_col.min(self.buffer.line_len(er - 1)),
+                                                    );
                                                     new_extras.push(c);
                                                 }
                                             }
@@ -1550,14 +1624,20 @@ impl Editor {
                                             let (pr, pc) = self.cursor.position();
                                             if pr + 1 < self.buffer.num_lines() {
                                                 let mut c = Cursor::new();
-                                                c.set_position(pr + 1, pc.min(self.buffer.line_len(pr + 1)));
+                                                c.set_position(
+                                                    pr + 1,
+                                                    pc.min(self.buffer.line_len(pr + 1)),
+                                                );
                                                 new_extras.push(c);
                                             }
                                             for ec in &self.extra_cursors {
                                                 let (er, ec_col) = ec.position();
                                                 if er + 1 < self.buffer.num_lines() {
                                                     let mut c = Cursor::new();
-                                                    c.set_position(er + 1, ec_col.min(self.buffer.line_len(er + 1)));
+                                                    c.set_position(
+                                                        er + 1,
+                                                        ec_col.min(self.buffer.line_len(er + 1)),
+                                                    );
                                                     new_extras.push(c);
                                                 }
                                             }
@@ -1754,18 +1834,21 @@ impl Editor {
                                         egui::Key::Z if modifiers.ctrl && !modifiers.shift => {
                                             self.buffer.undo();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
                                         // Redo (Ctrl+Shift+Z or Ctrl+Y)
                                         egui::Key::Z if modifiers.ctrl && modifiers.shift => {
                                             self.buffer.redo();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
                                         egui::Key::Y if modifiers.ctrl => {
                                             self.buffer.redo();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
 
                                         // Select All
@@ -1979,7 +2062,8 @@ impl Editor {
                                                 }
                                             }
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
 
                                         // Duplicate current line (Ctrl+Shift+D)
@@ -2001,7 +2085,8 @@ impl Editor {
                                             self.cursor.col = 0;
                                             self.extra_cursors.clear();
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
 
                                         // Indent selected/current lines (Ctrl+])
@@ -2016,7 +2101,8 @@ impl Editor {
                                             self.cursor.col = self.cursor.col.saturating_add(4);
                                             self.cursor.desired_col = self.cursor.col;
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
 
                                         // Unindent selected/current lines (Ctrl+[)
@@ -2040,7 +2126,8 @@ impl Editor {
                                                 }
                                             }
                                             self.is_modified = true;
-                                            self.content_version = self.content_version.wrapping_add(1);
+                                            self.content_version =
+                                                self.content_version.wrapping_add(1);
                                         }
 
                                         egui::Key::Escape => {
@@ -2297,7 +2384,10 @@ impl Editor {
                     .folded_lines
                     .iter()
                     .filter_map(|&start| {
-                        self.fold_regions.iter().find(|(s, _)| *s == start).map(|&(s, e)| (s, e))
+                        self.fold_regions
+                            .iter()
+                            .find(|(s, _)| *s == start)
+                            .map(|&(s, e)| (s, e))
                     })
                     .collect();
 
@@ -2321,10 +2411,14 @@ impl Editor {
 
                 // Iterate visible lines, skipping folded content
                 let mut line_idx = first_visible;
-                while line_idx < total_lines && line_idx < first_visible + visible_count + fold_map.len() {
+                while line_idx < total_lines
+                    && line_idx < first_visible + visible_count + fold_map.len()
+                {
                     let y = rect.min.y + line_idx as f32 * line_height - self.scroll_offset.y;
                     // Stop drawing if off-screen bottom
-                    if y > rect.max.y + line_height { break; }
+                    if y > rect.max.y + line_height {
+                        break;
+                    }
 
                     // Code folding: draw placeholder and skip folded lines
                     if let Some(&fold_end) = fold_map.get(&line_idx) {
@@ -2344,11 +2438,15 @@ impl Editor {
                         let tokens = self.highlighter.tokenize_line(&preview);
                         let mut job = egui::text::LayoutJob::default();
                         for tok in &tokens {
-                            job.append(&tok.text, 0.0, egui::TextFormat {
-                                font_id: font_id.clone(),
-                                color: tok.kind.color(),
-                                ..Default::default()
-                            });
+                            job.append(
+                                &tok.text,
+                                0.0,
+                                egui::TextFormat {
+                                    font_id: font_id.clone(),
+                                    color: tok.kind.color(),
+                                    ..Default::default()
+                                },
+                            );
                         }
                         job.append(
                             &format!("  ⋯  ({} lines)", folded_count),
@@ -2366,7 +2464,10 @@ impl Editor {
                         ));
                         if config.editor.line_numbers {
                             painter.text(
-                                egui::pos2(rect.min.x + blame_extra_width + 50.0 - 8.0, y + line_height * 0.5),
+                                egui::pos2(
+                                    rect.min.x + blame_extra_width + 50.0 - 8.0,
+                                    y + line_height * 0.5,
+                                ),
                                 egui::Align2::RIGHT_CENTER,
                                 (line_idx + 1).to_string(),
                                 font_id.clone(),
@@ -2379,7 +2480,10 @@ impl Editor {
 
                     if config.editor.line_numbers {
                         painter.text(
-                            egui::pos2(rect.min.x + blame_extra_width + 50.0 - 8.0, y + line_height * 0.5),
+                            egui::pos2(
+                                rect.min.x + blame_extra_width + 50.0 - 8.0,
+                                y + line_height * 0.5,
+                            ),
                             egui::Align2::RIGHT_CENTER,
                             (line_idx + 1).to_string(),
                             font_id.clone(),
@@ -2389,9 +2493,13 @@ impl Editor {
 
                     // Git diff bar in gutter (left edge of line number area)
                     if config.editor.line_numbers && !self.line_diff.is_empty() {
-                        let diff_status = self.line_diff.get(line_idx).copied().unwrap_or(DIFF_UNCHANGED);
+                        let diff_status = self
+                            .line_diff
+                            .get(line_idx)
+                            .copied()
+                            .unwrap_or(DIFF_UNCHANGED);
                         let bar_color = match diff_status {
-                            DIFF_ADDED    => Some(egui::Color32::from_rgb(80, 200, 80)),
+                            DIFF_ADDED => Some(egui::Color32::from_rgb(80, 200, 80)),
                             DIFF_MODIFIED => Some(egui::Color32::from_rgb(80, 150, 255)),
                             _ => None,
                         };
@@ -2411,8 +2519,15 @@ impl Editor {
                     // Git blame in gutter
                     if self.show_blame {
                         if let Some(entry) = self.blame_data.get(line_idx) {
-                            let blame_text = format!("{} {}", &entry.commit_short,
-                                if entry.author.len() > 8 { &entry.author[..8] } else { &entry.author });
+                            let blame_text = format!(
+                                "{} {}",
+                                &entry.commit_short,
+                                if entry.author.len() > 8 {
+                                    &entry.author[..8]
+                                } else {
+                                    &entry.author
+                                }
+                            );
                             painter.text(
                                 egui::pos2(rect.min.x + 2.0, y + line_height * 0.5),
                                 egui::Align2::LEFT_CENTER,
@@ -2440,7 +2555,10 @@ impl Editor {
                         let has_diag = self.diagnostics.iter().any(|d| d.line as usize == line_idx);
                         if has_diag && config.editor.line_numbers {
                             painter.text(
-                                egui::pos2(rect.min.x + blame_extra_width + 2.0, y + line_height * 0.5),
+                                egui::pos2(
+                                    rect.min.x + blame_extra_width + 2.0,
+                                    y + line_height * 0.5,
+                                ),
                                 egui::Align2::LEFT_CENTER,
                                 "💡",
                                 egui::FontId::proportional(11.0),
@@ -2473,25 +2591,54 @@ impl Editor {
                                 .and_then(|re| re.find(&haystack[search_pos..]))
                                 .map(|m| (m.start(), m.end()))
                             } else {
-                                haystack[search_pos..].find(&needle).map(|s| (s, s + needle.len()))
+                                haystack[search_pos..]
+                                    .find(&needle)
+                                    .map(|s| (s, s + needle.len()))
                             };
                             match found {
                                 None => break,
                                 Some((rel_start, rel_end)) => {
                                     let abs_start = search_pos + rel_start;
-                                    let abs_end   = search_pos + rel_end;
+                                    let abs_end = search_pos + rel_end;
                                     // Convert byte offset → char count for pixel measurement
                                     let pre_chars = haystack_raw[..abs_start].chars().count();
-                                    let span_chars = haystack_raw[abs_start..abs_end].chars().count();
-                                    let pre_text: String = haystack_raw.chars().take(pre_chars).collect();
-                                    let span_text: String = haystack_raw.chars().skip(pre_chars).take(span_chars).collect();
-                                    let pre_w = ui.fonts(|f| f.layout_no_wrap(pre_text, font_id.clone(), egui::Color32::WHITE).size().x);
-                                    let span_w = ui.fonts(|f| f.layout_no_wrap(span_text, font_id.clone(), egui::Color32::WHITE).size().x);
+                                    let span_chars =
+                                        haystack_raw[abs_start..abs_end].chars().count();
+                                    let pre_text: String =
+                                        haystack_raw.chars().take(pre_chars).collect();
+                                    let span_text: String = haystack_raw
+                                        .chars()
+                                        .skip(pre_chars)
+                                        .take(span_chars)
+                                        .collect();
+                                    let pre_w = ui.fonts(|f| {
+                                        f.layout_no_wrap(
+                                            pre_text,
+                                            font_id.clone(),
+                                            egui::Color32::WHITE,
+                                        )
+                                        .size()
+                                        .x
+                                    });
+                                    let span_w = ui.fonts(|f| {
+                                        f.layout_no_wrap(
+                                            span_text,
+                                            font_id.clone(),
+                                            egui::Color32::WHITE,
+                                        )
+                                        .size()
+                                        .x
+                                    });
                                     let hx = x_start + pre_w - self.scroll_offset.x;
                                     if hx < rect.max.x && hx + span_w > x_start {
                                         // Active match: bright yellow; other matches: dim
-                                        let is_active = self.find_matches.get(self.find_current) == Some(&line_idx);
-                                        let color = if is_active { find_highlight_active } else { find_highlight };
+                                        let is_active = self.find_matches.get(self.find_current)
+                                            == Some(&line_idx);
+                                        let color = if is_active {
+                                            find_highlight_active
+                                        } else {
+                                            find_highlight
+                                        };
                                         painter.rect_filled(
                                             egui::Rect::from_min_size(
                                                 egui::pos2(hx, y + 1.0),
@@ -2625,8 +2772,15 @@ impl Editor {
                             );
                         }
                         // Request repaint at the next blink transition.
-                        let next_transition = if cursor_visible { 530 - blink_ms } else { 1060 - blink_ms };
-                        ui.ctx().request_repaint_after(std::time::Duration::from_millis(next_transition as u64 + 1));
+                        let next_transition = if cursor_visible {
+                            530 - blink_ms
+                        } else {
+                            1060 - blink_ms
+                        };
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(
+                                next_transition as u64 + 1,
+                            ));
                         // Update autocomplete popup anchor for this frame.
                         self.autocomplete.cursor_screen_pos = egui::pos2(cx, y + line_height);
                     }
@@ -2663,12 +2817,18 @@ impl Editor {
                         };
                         let guides = leading / ind_size;
                         for g in 1..=guides {
-                            let gx = x_start + (g * ind_size) as f32 * char_width - self.scroll_offset.x;
+                            let gx =
+                                x_start + (g * ind_size) as f32 * char_width - self.scroll_offset.x;
                             // clamp to visible text area
-                            if gx < x_start || gx > rect.max.x { continue; }
+                            if gx < x_start || gx > rect.max.x {
+                                continue;
+                            }
                             painter.line_segment(
                                 [egui::pos2(gx, y), egui::pos2(gx, y + line_height)],
-                                egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(80, 80, 90, 50)),
+                                egui::Stroke::new(
+                                    1.0,
+                                    egui::Color32::from_rgba_premultiplied(80, 80, 90, 50),
+                                ),
                             );
                         }
                     }
@@ -2677,10 +2837,18 @@ impl Editor {
                     if let Some((or, oc, cr, cc)) = self.bracket_match {
                         for (br, bc) in [(or, oc), (cr, cc)] {
                             if line_idx == br {
-                                let bx = x_start + ui.fonts(|f| {
-                                    let text: String = line.chars().take(bc).collect();
-                                    f.layout_no_wrap(text, font_id.clone(), egui::Color32::WHITE).size().x
-                                }) - self.scroll_offset.x;
+                                let bx = x_start
+                                    + ui.fonts(|f| {
+                                        let text: String = line.chars().take(bc).collect();
+                                        f.layout_no_wrap(
+                                            text,
+                                            font_id.clone(),
+                                            egui::Color32::WHITE,
+                                        )
+                                        .size()
+                                        .x
+                                    })
+                                    - self.scroll_offset.x;
                                 painter.rect_filled(
                                     egui::Rect::from_min_size(
                                         egui::pos2(bx, y),
@@ -2777,8 +2945,8 @@ impl Editor {
                             let mut x = x_diag_start;
                             while x < x_diag_end {
                                 let x1 = x;
-                                let y1 = underline_y
-                                    + amp * ((x / period * std::f32::consts::PI).sin());
+                                let y1 =
+                                    underline_y + amp * ((x / period * std::f32::consts::PI).sin());
                                 let x2 = (x + period / 2.0).min(x_diag_end);
                                 let y2 = underline_y - amp;
                                 painter.line_segment(
@@ -2814,9 +2982,9 @@ impl Editor {
                     let content_w = max_line_chars as f32 * char_width + gutter_width + 40.0;
                     let view_w = rect.width();
                     if content_w > view_w {
-                        let track_x  = rect.min.x + gutter_width;
-                        let track_w  = view_w - gutter_width;
-                        let track_y  = rect.max.y - scrollbar_h;
+                        let track_x = rect.min.x + gutter_width;
+                        let track_w = view_w - gutter_width;
+                        let track_y = rect.max.y - scrollbar_h;
                         // Thumb proportional size and position
                         let thumb_ratio = (view_w / content_w).min(1.0);
                         let thumb_w = (track_w * thumb_ratio).max(20.0);
@@ -2824,13 +2992,19 @@ impl Editor {
                         let thumb_x = track_x + scroll_ratio * (track_w - thumb_w);
                         // Track background
                         painter.rect_filled(
-                            egui::Rect::from_min_size(egui::pos2(track_x, track_y), egui::vec2(track_w, scrollbar_h)),
+                            egui::Rect::from_min_size(
+                                egui::pos2(track_x, track_y),
+                                egui::vec2(track_w, scrollbar_h),
+                            ),
                             0.0,
                             egui::Color32::from_rgba_premultiplied(0, 0, 0, 60),
                         );
                         // Thumb
                         painter.rect_filled(
-                            egui::Rect::from_min_size(egui::pos2(thumb_x, track_y + 1.0), egui::vec2(thumb_w, scrollbar_h - 2.0)),
+                            egui::Rect::from_min_size(
+                                egui::pos2(thumb_x, track_y + 1.0),
+                                egui::vec2(thumb_w, scrollbar_h - 2.0),
+                            ),
                             3.0,
                             egui::Color32::from_rgba_premultiplied(150, 150, 150, 120),
                         );
@@ -2839,11 +3013,17 @@ impl Editor {
                             egui::pos2(thumb_x, track_y),
                             egui::vec2(thumb_w, scrollbar_h),
                         );
-                        let sb_resp = ui.interact(thumb_rect, response.id.with("hscroll"), egui::Sense::drag());
+                        let sb_resp = ui.interact(
+                            thumb_rect,
+                            response.id.with("hscroll"),
+                            egui::Sense::drag(),
+                        );
                         if sb_resp.dragged() {
                             let delta = sb_resp.drag_delta().x;
                             let scroll_range = content_w - view_w;
-                            self.scroll_offset.x = (self.scroll_offset.x + delta * scroll_range / (track_w - thumb_w)).clamp(0.0, scroll_range);
+                            self.scroll_offset.x = (self.scroll_offset.x
+                                + delta * scroll_range / (track_w - thumb_w))
+                                .clamp(0.0, scroll_range);
                         }
                     } else {
                         // Content fits: reset horizontal scroll
@@ -2879,54 +3059,81 @@ impl Editor {
                             .iter()
                             .map(|sec| match sec {
                                 HoverSection::CodeBlock { code, .. } => {
-                                    let jobs = code.lines().map(|line| {
-                                        let tokens = self.highlighter.tokenize_line(line);
-                                        let mut job = egui::text::LayoutJob {
-                                            wrap: egui::text::TextWrapping {
-                                                max_width: 500.0,
-                                                ..Default::default()
-                                            },
-                                            ..Default::default()
-                                        };
-                                        for tok in &tokens {
-                                            if !tok.text.is_empty() {
-                                                job.append(&tok.text, 0.0, egui::TextFormat {
-                                                    font_id: egui::FontId::monospace(13.0),
-                                                    color: tok.kind.color(),
+                                    let jobs = code
+                                        .lines()
+                                        .map(|line| {
+                                            let tokens = self.highlighter.tokenize_line(line);
+                                            let mut job = egui::text::LayoutJob {
+                                                wrap: egui::text::TextWrapping {
+                                                    max_width: 500.0,
                                                     ..Default::default()
-                                                });
-                                            }
-                                        }
-                                        if job.sections.is_empty() {
-                                            job.append(line, 0.0, egui::TextFormat {
-                                                font_id: egui::FontId::monospace(13.0),
-                                                color: egui::Color32::from_rgb(212, 212, 212),
+                                                },
                                                 ..Default::default()
-                                            });
-                                        }
-                                        job
-                                    }).collect();
-                                    RenderedSection { is_code: true, is_separator: false, jobs }
+                                            };
+                                            for tok in &tokens {
+                                                if !tok.text.is_empty() {
+                                                    job.append(
+                                                        &tok.text,
+                                                        0.0,
+                                                        egui::TextFormat {
+                                                            font_id: egui::FontId::monospace(13.0),
+                                                            color: tok.kind.color(),
+                                                            ..Default::default()
+                                                        },
+                                                    );
+                                                }
+                                            }
+                                            if job.sections.is_empty() {
+                                                job.append(
+                                                    line,
+                                                    0.0,
+                                                    egui::TextFormat {
+                                                        font_id: egui::FontId::monospace(13.0),
+                                                        color: egui::Color32::from_rgb(
+                                                            212, 212, 212,
+                                                        ),
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                            }
+                                            job
+                                        })
+                                        .collect();
+                                    RenderedSection {
+                                        is_code: true,
+                                        is_separator: false,
+                                        jobs,
+                                    }
                                 }
                                 HoverSection::Text(text) => {
-                                    let jobs = text.lines().map(|line| {
-                                        if line.trim().is_empty() {
-                                            egui::text::LayoutJob::default()
-                                        } else {
-                                            inline_markdown_job(line, 13.0)
-                                        }
-                                    }).collect();
-                                    RenderedSection { is_code: false, is_separator: false, jobs }
+                                    let jobs = text
+                                        .lines()
+                                        .map(|line| {
+                                            if line.trim().is_empty() {
+                                                egui::text::LayoutJob::default()
+                                            } else {
+                                                inline_markdown_job(line, 13.0)
+                                            }
+                                        })
+                                        .collect();
+                                    RenderedSection {
+                                        is_code: false,
+                                        is_separator: false,
+                                        jobs,
+                                    }
                                 }
-                                HoverSection::Separator => {
-                                    RenderedSection { is_code: false, is_separator: true, jobs: vec![] }
-                                }
+                                HoverSection::Separator => RenderedSection {
+                                    is_code: false,
+                                    is_separator: true,
+                                    jobs: vec![],
+                                },
                             })
                             .collect();
 
                         // Determine anchor: below the hovered word, or above if near bottom.
                         let screen_rect = ui.ctx().screen_rect();
-                        let raw_anchor = self.hover_tooltip_anchor
+                        let raw_anchor = self
+                            .hover_tooltip_anchor
                             .unwrap_or(self.hover_pos + egui::vec2(0.0, line_height + 4.0));
                         // Estimate content height to decide above/below.
                         let est_lines: usize = rendered.iter().map(|s| s.jobs.len().max(1)).sum();
@@ -2959,25 +3166,42 @@ impl Editor {
                                                 for sec in &rendered {
                                                     if sec.is_separator {
                                                         ui.add_space(4.0);
-                                                        let sep_rect = ui.available_rect_before_wrap();
+                                                        let sep_rect =
+                                                            ui.available_rect_before_wrap();
                                                         let y = sep_rect.min.y + 1.0;
                                                         ui.painter().line_segment(
                                                             [
                                                                 egui::pos2(sep_rect.min.x, y),
-                                                                egui::pos2(sep_rect.min.x + 500.0, y),
+                                                                egui::pos2(
+                                                                    sep_rect.min.x + 500.0,
+                                                                    y,
+                                                                ),
                                                             ],
-                                                            egui::Stroke::new(1.0, egui::Color32::from_gray(60)),
+                                                            egui::Stroke::new(
+                                                                1.0,
+                                                                egui::Color32::from_gray(60),
+                                                            ),
                                                         );
                                                         ui.add_space(6.0);
                                                     } else if sec.is_code {
                                                         egui::Frame::new()
-                                                            .fill(egui::Color32::from_rgb(20, 20, 20))
-                                                            .corner_radius(egui::CornerRadius::same(3))
-                                                            .inner_margin(egui::Margin::symmetric(8, 4))
+                                                            .fill(egui::Color32::from_rgb(
+                                                                20, 20, 20,
+                                                            ))
+                                                            .corner_radius(
+                                                                egui::CornerRadius::same(3),
+                                                            )
+                                                            .inner_margin(egui::Margin::symmetric(
+                                                                8, 4,
+                                                            ))
                                                             .show(ui, |ui| {
                                                                 ui.set_max_width(520.0);
                                                                 for job in &sec.jobs {
-                                                                    ui.label(egui::WidgetText::LayoutJob(job.clone()));
+                                                                    ui.label(
+                                                                        egui::WidgetText::LayoutJob(
+                                                                            job.clone(),
+                                                                        ),
+                                                                    );
                                                                 }
                                                             });
                                                     } else {
@@ -2985,7 +3209,11 @@ impl Editor {
                                                             if job.sections.is_empty() {
                                                                 ui.add_space(4.0);
                                                             } else {
-                                                                ui.label(egui::WidgetText::LayoutJob(job.clone()));
+                                                                ui.label(
+                                                                    egui::WidgetText::LayoutJob(
+                                                                        job.clone(),
+                                                                    ),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -2996,9 +3224,14 @@ impl Editor {
                                         ui.separator();
                                         ui.add_space(2.0);
                                         ui.horizontal(|ui| {
-                                            if hover_word_for_goto.is_some() && ui.small_button("Go to Definition").clicked() {
+                                            if hover_word_for_goto.is_some()
+                                                && ui.small_button("Go to Definition").clicked()
+                                            {
                                                 ui.ctx().data_mut(|d| {
-                                                    d.insert_temp(egui::Id::new("hover_goto_clicked"), true);
+                                                    d.insert_temp(
+                                                        egui::Id::new("hover_goto_clicked"),
+                                                        true,
+                                                    );
                                                 });
                                             }
                                         });
@@ -3013,7 +3246,8 @@ impl Editor {
                         // by checking if the area was clicked on the button region.
                         // Simpler: render a second pass check is complex; use a shared flag via id-based memory.
                         let goto_clicked = ui.ctx().data(|d| {
-                            d.get_temp::<bool>(egui::Id::new("hover_goto_clicked")).unwrap_or(false)
+                            d.get_temp::<bool>(egui::Id::new("hover_goto_clicked"))
+                                .unwrap_or(false)
                         });
                         if goto_clicked {
                             ui.ctx().data_mut(|d| {
@@ -3030,8 +3264,12 @@ impl Editor {
                 if let Some(ref diag_msg) = self.diag_hover_msg.clone() {
                     if !diag_msg.is_empty() {
                         let border_color = match self.diag_hover_severity {
-                            crate::lsp::client::DiagSeverity::Error => egui::Color32::from_rgb(230, 70, 70),
-                            crate::lsp::client::DiagSeverity::Warning => egui::Color32::from_rgb(230, 185, 30),
+                            crate::lsp::client::DiagSeverity::Error => {
+                                egui::Color32::from_rgb(230, 70, 70)
+                            }
+                            crate::lsp::client::DiagSeverity::Warning => {
+                                egui::Color32::from_rgb(230, 185, 30)
+                            }
                             _ => egui::Color32::from_rgb(80, 130, 220),
                         };
                         let diag_anchor = self.hover_pos + egui::vec2(0.0, line_height + 4.0);
@@ -3050,10 +3288,16 @@ impl Editor {
                                         // Severity badge
                                         let badge = match self.diag_hover_severity {
                                             crate::lsp::client::DiagSeverity::Error => "⛔ Error",
-                                            crate::lsp::client::DiagSeverity::Warning => "⚠ Warning",
+                                            crate::lsp::client::DiagSeverity::Warning => {
+                                                "⚠ Warning"
+                                            }
                                             _ => "ℹ Info",
                                         };
-                                        ui.label(egui::RichText::new(badge).color(border_color).size(11.0));
+                                        ui.label(
+                                            egui::RichText::new(badge)
+                                                .color(border_color)
+                                                .size(11.0),
+                                        );
                                         ui.add_space(2.0);
                                         ui.label(
                                             egui::RichText::new(diag_msg.as_str())
@@ -3070,7 +3314,8 @@ impl Editor {
                     if !sig_text.is_empty() {
                         let (cur_row, cur_col) = self.cursor.position();
                         let cursor_x = rect.min.x + gutter_width + cur_col as f32 * char_width;
-                        let cursor_y = rect.min.y + (cur_row + 1) as f32 * line_height - self.scroll_offset.y;
+                        let cursor_y =
+                            rect.min.y + (cur_row + 1) as f32 * line_height - self.scroll_offset.y;
                         let screen_rect = ui.ctx().screen_rect();
                         // Prefer below cursor; go above if needed.
                         let mut tl = egui::pos2(cursor_x, cursor_y + 4.0);
@@ -3085,7 +3330,10 @@ impl Editor {
                             .show(ui.ctx(), |ui| {
                                 egui::Frame::new()
                                     .fill(egui::Color32::from_rgb(25, 40, 60))
-                                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 130, 200)))
+                                    .stroke(egui::Stroke::new(
+                                        1.0,
+                                        egui::Color32::from_rgb(80, 130, 200),
+                                    ))
                                     .corner_radius(egui::CornerRadius::same(4))
                                     .inner_margin(egui::Margin::symmetric(10, 6))
                                     .show(ui, |ui| {

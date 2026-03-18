@@ -42,18 +42,27 @@ impl DapManager {
     }
 
     /// Start a new debug session.
-    pub fn start_session(&mut self, cfg: &DapConfig, workspace: &Path, current_file: Option<&Path>) -> anyhow::Result<()> {
+    pub fn start_session(
+        &mut self,
+        cfg: &DapConfig,
+        workspace: &Path,
+        current_file: Option<&Path>,
+    ) -> anyhow::Result<()> {
         let mut client = DapClient::start(cfg, workspace)?;
         // If a current file is set, substitute ${file} in the launch config.
         if let Some(file) = current_file {
             client.set_file_variable(file);
         }
         // Queue all stored breakpoints.
-        let bps: Vec<(PathBuf, Vec<usize>)> = self.breakpoints.iter().map(|(f, ls)| {
-            let mut lines: Vec<usize> = ls.iter().cloned().collect();
-            lines.sort_unstable();
-            (f.clone(), lines)
-        }).collect();
+        let bps: Vec<(PathBuf, Vec<usize>)> = self
+            .breakpoints
+            .iter()
+            .map(|(f, ls)| {
+                let mut lines: Vec<usize> = ls.iter().cloned().collect();
+                lines.sort_unstable();
+                (f.clone(), lines)
+            })
+            .collect();
         for (file, lines) in &bps {
             client.set_breakpoints(file, lines);
         }
@@ -111,18 +120,30 @@ impl DapManager {
     }
 
     pub fn call_stack(&self) -> &[StackFrame] {
-        self.session.as_ref().map(|s| s.call_stack.as_slice()).unwrap_or(&[])
+        self.session
+            .as_ref()
+            .map(|s| s.call_stack.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn variables(&self) -> &[Variable] {
-        self.session.as_ref().map(|s| s.variables.as_slice()).unwrap_or(&[])
+        self.session
+            .as_ref()
+            .map(|s| s.variables.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn output_log(&self) -> &[String] {
-        self.session.as_ref().map(|s| s.output_log.as_slice()).unwrap_or(&[])
+        self.session
+            .as_ref()
+            .map(|s| s.output_log.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn session_state(&self) -> DebugSessionState {
-        self.session.as_ref().map(|s| s.state.clone()).unwrap_or(DebugSessionState::Idle)
+        self.session
+            .as_ref()
+            .map(|s| s.state.clone())
+            .unwrap_or(DebugSessionState::Idle)
     }
 }

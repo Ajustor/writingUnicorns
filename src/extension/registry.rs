@@ -89,7 +89,9 @@ impl ExtensionRegistry {
             let source_manifest_path = match &source.kind {
                 SourceKind::Workspace => {
                     let Some(path) = &source.path else { continue };
-                    let Some(member) = &source.member else { continue };
+                    let Some(member) = &source.member else {
+                        continue;
+                    };
                     PathBuf::from(path).join(member).join("manifest.toml")
                 }
                 SourceKind::Folder => {
@@ -99,10 +101,10 @@ impl ExtensionRegistry {
                 SourceKind::Git => continue, // git requires network — skip
             };
             let Ok(content) = std::fs::read_to_string(&source_manifest_path) else {
-                continue
+                continue;
             };
             let Ok(source_manifest) = toml::from_str::<ExtensionManifest>(&content) else {
-                continue
+                continue;
             };
             let src_ver = &source_manifest.extension.version;
             let cur_ver = &ext.manifest.extension.version;

@@ -19,8 +19,8 @@ pub struct FileTree {
 #[derive(Debug, Clone)]
 pub enum FileTreeAction {
     OpenFile(PathBuf),
-    NewFile(PathBuf),      // parent dir
-    NewFolder(PathBuf),    // parent dir
+    NewFile(PathBuf),        // parent dir
+    NewFolder(PathBuf),      // parent dir
     Rename(PathBuf, String), // old path, new name
     Delete(PathBuf),
     RevealInExplorer(PathBuf),
@@ -48,14 +48,25 @@ impl FileTree {
         let mut action: Option<FileTreeAction> = None;
         let mut rename_state = self.rename_state.take();
         if let Some(root) = &mut self.root {
-            Self::show_entry_recursive(ui, root, &mut self.selected, &mut opened, &mut action, &mut rename_state);
+            Self::show_entry_recursive(
+                ui,
+                root,
+                &mut self.selected,
+                &mut opened,
+                &mut action,
+                &mut rename_state,
+            );
         }
         self.rename_state = rename_state;
         // Store non-open actions for the caller to pick up
         if let Some(a) = action {
             match &a {
-                FileTreeAction::OpenFile(p) => { opened = Some(p.clone()); }
-                _ => { self.context_action = Some(a); }
+                FileTreeAction::OpenFile(p) => {
+                    opened = Some(p.clone());
+                }
+                _ => {
+                    self.context_action = Some(a);
+                }
             }
         }
         opened
@@ -72,17 +83,17 @@ impl FileTree {
         let indent = entry.depth as f32 * 14.0;
 
         // Inline rename mode
-        let is_renaming = rename_state.as_ref().map(|(p, _)| p == &entry.path).unwrap_or(false);
+        let is_renaming = rename_state
+            .as_ref()
+            .map(|(p, _)| p == &entry.path)
+            .unwrap_or(false);
 
         let row_resp = ui.horizontal(|ui| {
             ui.add_space(indent);
 
             if is_renaming {
                 if let Some((_, ref mut new_name)) = rename_state {
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(new_name)
-                            .desired_width(150.0),
-                    );
+                    let resp = ui.add(egui::TextEdit::singleline(new_name).desired_width(150.0));
                     resp.request_focus();
                     if resp.lost_focus() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         let new_n = new_name.clone();
@@ -97,10 +108,20 @@ impl FileTree {
             }
 
             if entry.is_dir {
-                let arrow = if entry.is_expanded { ph::CARET_DOWN } else { ph::CARET_RIGHT };
-                let folder_icon = if entry.is_expanded { ph::FOLDER_OPEN } else { ph::FOLDER };
+                let arrow = if entry.is_expanded {
+                    ph::CARET_DOWN
+                } else {
+                    ph::CARET_RIGHT
+                };
+                let folder_icon = if entry.is_expanded {
+                    ph::FOLDER_OPEN
+                } else {
+                    ph::FOLDER
+                };
                 let color = egui::Color32::from_rgb(220, 180, 100);
-                let label = egui::RichText::new(format!("{} {} {}", arrow, folder_icon, entry.name)).color(color);
+                let label =
+                    egui::RichText::new(format!("{} {} {}", arrow, folder_icon, entry.name))
+                        .color(color);
                 let resp = ui.selectable_label(false, label);
                 if resp.clicked() {
                     entry.is_expanded = !entry.is_expanded;

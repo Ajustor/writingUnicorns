@@ -90,12 +90,18 @@ pub(super) fn inline_markdown_job(text: &str, font_size: f32) -> egui::text::Lay
     let mut current = String::new();
 
     let flush_normal = |job: &mut egui::text::LayoutJob, s: &mut String| {
-        if s.is_empty() { return; }
-        job.append(s, 0.0, egui::TextFormat {
-            font_id: prop(font_size),
-            color: normal_color,
-            ..Default::default()
-        });
+        if s.is_empty() {
+            return;
+        }
+        job.append(
+            s,
+            0.0,
+            egui::TextFormat {
+                font_id: prop(font_size),
+                color: normal_color,
+                ..Default::default()
+            },
+        );
         s.clear();
     };
 
@@ -112,13 +118,19 @@ pub(super) fn inline_markdown_job(text: &str, font_size: f32) -> egui::text::Lay
                 bold.push(chars[i]);
                 i += 1;
             }
-            if i + 1 < chars.len() { i += 2; }
+            if i + 1 < chars.len() {
+                i += 2;
+            }
             if !bold.is_empty() {
-                job.append(&bold, 0.0, egui::TextFormat {
-                    font_id: prop(font_size),
-                    color: bold_color,
-                    ..Default::default()
-                });
+                job.append(
+                    &bold,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: prop(font_size),
+                        color: bold_color,
+                        ..Default::default()
+                    },
+                );
             }
         } else if (chars[i] == '*' || chars[i] == '_')
             && (i + 1 >= chars.len() || chars[i + 1] != chars[i])
@@ -131,14 +143,20 @@ pub(super) fn inline_markdown_job(text: &str, font_size: f32) -> egui::text::Lay
                 italic.push(chars[i]);
                 i += 1;
             }
-            if i < chars.len() { i += 1; }
+            if i < chars.len() {
+                i += 1;
+            }
             if !italic.is_empty() {
-                job.append(&italic, 0.0, egui::TextFormat {
-                    font_id: prop(font_size),
-                    color: normal_color,
-                    italics: true,
-                    ..Default::default()
-                });
+                job.append(
+                    &italic,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: prop(font_size),
+                        color: normal_color,
+                        italics: true,
+                        ..Default::default()
+                    },
+                );
             }
         } else if chars[i] == '`' {
             flush_normal(&mut job, &mut current);
@@ -148,26 +166,40 @@ pub(super) fn inline_markdown_job(text: &str, font_size: f32) -> egui::text::Lay
                 code.push(chars[i]);
                 i += 1;
             }
-            if i < chars.len() { i += 1; }
+            if i < chars.len() {
+                i += 1;
+            }
             if !code.is_empty() {
-                job.append(" ", 0.0, egui::TextFormat {
-                    font_id: mono(font_size - 1.0),
-                    color: code_color,
-                    background: code_bg,
-                    ..Default::default()
-                });
-                job.append(&code, 0.0, egui::TextFormat {
-                    font_id: mono(font_size - 1.0),
-                    color: code_color,
-                    background: code_bg,
-                    ..Default::default()
-                });
-                job.append(" ", 0.0, egui::TextFormat {
-                    font_id: mono(font_size - 1.0),
-                    color: code_color,
-                    background: code_bg,
-                    ..Default::default()
-                });
+                job.append(
+                    " ",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: mono(font_size - 1.0),
+                        color: code_color,
+                        background: code_bg,
+                        ..Default::default()
+                    },
+                );
+                job.append(
+                    &code,
+                    0.0,
+                    egui::TextFormat {
+                        font_id: mono(font_size - 1.0),
+                        color: code_color,
+                        background: code_bg,
+                        ..Default::default()
+                    },
+                );
+                job.append(
+                    " ",
+                    0.0,
+                    egui::TextFormat {
+                        font_id: mono(font_size - 1.0),
+                        color: code_color,
+                        background: code_bg,
+                        ..Default::default()
+                    },
+                );
             }
         } else {
             current.push(chars[i]);

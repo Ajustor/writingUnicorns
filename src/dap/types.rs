@@ -50,6 +50,8 @@ pub enum DebugSessionState {
     Idle,
     Launching,
     Running,
-    Paused { thread_id: i64 },
+    Paused {
+        thread_id: i64,
+    },
     Terminated,
 }

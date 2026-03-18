@@ -69,10 +69,7 @@ impl Plugin for WebLangExtension {
         // Requires `@vscode/js-debug` or `node-debug2` to be installed.
         Some(DapConfig {
             adapter_cmd: "node".to_string(),
-            adapter_args: vec![
-                "--require".to_string(),
-                "ts-node/register".to_string(),
-            ],
+            adapter_args: vec!["--require".to_string(), "ts-node/register".to_string()],
             launch_config: serde_json::json!({
                 "type": "node",
                 "request": "launch",

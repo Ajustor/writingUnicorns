@@ -207,11 +207,34 @@ impl Terminal {
                             .max(cursor_row + 1);
 
                         for row in &self.performer.buf.scrollback {
-                            render_row(ui, row, LINE_HEIGHT, default_fg, term_bg, content_width, None);
+                            render_row(
+                                ui,
+                                row,
+                                LINE_HEIGHT,
+                                default_fg,
+                                term_bg,
+                                content_width,
+                                None,
+                            );
                         }
-                        for (i, row) in self.performer.buf.rows[..last_screen_row].iter().enumerate() {
-                            let cur = if i == cursor_row { Some(cursor_col) } else { None };
-                            render_row(ui, row, LINE_HEIGHT, default_fg, term_bg, content_width, cur);
+                        for (i, row) in self.performer.buf.rows[..last_screen_row]
+                            .iter()
+                            .enumerate()
+                        {
+                            let cur = if i == cursor_row {
+                                Some(cursor_col)
+                            } else {
+                                None
+                            };
+                            render_row(
+                                ui,
+                                row,
+                                LINE_HEIGHT,
+                                default_fg,
+                                term_bg,
+                                content_width,
+                                cur,
+                            );
                         }
                     });
 
@@ -322,10 +345,8 @@ fn render_row(
         .rposition(|c| c.ch != ' ' || c.fg != DEFAULT_FG || c.bold)
         .map_or(0, |i| i + 1);
 
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(clip_width, line_height),
-        egui::Sense::hover(),
-    );
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(clip_width, line_height), egui::Sense::hover());
 
     if let Some(col) = cursor_col {
         let prefix: String = row.iter().take(col).map(|c| c.ch).collect();

@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crossbeam_channel::{unbounded, Receiver};
 use serde_json::Value;
@@ -43,12 +43,12 @@ impl LspTransport {
                     continue;
                 }
 
-                let content_length: usize =
-                    if let Some(s) = header.strip_prefix("Content-Length: ") {
-                        s.trim().parse().unwrap_or(0)
-                    } else {
-                        continue;
-                    };
+                let content_length: usize = if let Some(s) = header.strip_prefix("Content-Length: ")
+                {
+                    s.trim().parse().unwrap_or(0)
+                } else {
+                    continue;
+                };
 
                 // Skip blank line between header and body
                 let mut blank = String::new();

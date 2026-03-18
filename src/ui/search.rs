@@ -50,7 +50,9 @@ impl WorkspaceSearch {
     }
 
     pub fn start_replace_all(&mut self, workspace: PathBuf) {
-        if self.query.is_empty() { return; }
+        if self.query.is_empty() {
+            return;
+        }
         let query = self.query.clone();
         let replacement = self.replace_query.clone();
         let case_sensitive = self.case_sensitive;
@@ -124,7 +126,11 @@ impl WorkspaceSearch {
         ui.horizontal(|ui| {
             // Toggle replace row
             let rep_icon = if self.show_replace { "▴" } else { "▾" };
-            if ui.small_button(rep_icon).on_hover_text("Toggle replace").clicked() {
+            if ui
+                .small_button(rep_icon)
+                .on_hover_text("Toggle replace")
+                .clicked()
+            {
                 self.show_replace = !self.show_replace;
             }
             ui.label("🔍");
@@ -165,7 +171,11 @@ impl WorkspaceSearch {
             if self.is_replacing {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(egui::RichText::new("Replacing…").size(11.0).color(egui::Color32::GRAY));
+                    ui.label(
+                        egui::RichText::new("Replacing…")
+                            .size(11.0)
+                            .color(egui::Color32::GRAY),
+                    );
                 });
             } else if let Some(count) = self.replace_count {
                 ui.label(
@@ -359,18 +369,29 @@ fn search_file(path: &Path, query: &str, case_sensitive: bool, matches: &mut Vec
 
 fn replace_in_dir(dir: &Path, query: &str, replacement: &str, case_sensitive: bool) -> usize {
     let mut count = 0;
-    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.starts_with('.') { continue; }
-        if matches!(name_str.as_ref(), "target" | "node_modules" | ".git" | "dist" | "build") { continue; }
+        if name_str.starts_with('.') {
+            continue;
+        }
+        if matches!(
+            name_str.as_ref(),
+            "target" | "node_modules" | ".git" | "dist" | "build"
+        ) {
+            continue;
+        }
         if path.is_dir() {
             count += replace_in_dir(&path, query, replacement, case_sensitive);
         } else if path.is_file() {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !is_text_extension(ext) { continue; }
+            if !is_text_extension(ext) {
+                continue;
+            }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let (new_content, n) = if case_sensitive {
                     let n = content.matches(query).count();

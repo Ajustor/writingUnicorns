@@ -21,7 +21,9 @@ pub(super) fn compute_line_diff(path: &std::path::Path, num_lines: usize) -> Vec
     let head = match repo.head() {
         Ok(h) => h,
         Err(_) => {
-            for s in result.iter_mut() { *s = DIFF_ADDED; }
+            for s in result.iter_mut() {
+                *s = DIFF_ADDED;
+            }
             return result;
         }
     };
@@ -32,7 +34,9 @@ pub(super) fn compute_line_diff(path: &std::path::Path, num_lines: usize) -> Vec
     let entry = match tree.get_path(rel) {
         Ok(e) => e,
         Err(_) => {
-            for s in result.iter_mut() { *s = DIFF_ADDED; }
+            for s in result.iter_mut() {
+                *s = DIFF_ADDED;
+            }
             return result;
         }
     };

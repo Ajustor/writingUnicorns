@@ -37,28 +37,28 @@ impl PaletteCommand {
     pub fn label(&self) -> &'static str {
         match self {
             Self::ToggleTerminal => "Toggle Terminal",
-            Self::ToggleSidebar  => "Toggle Sidebar",
-            Self::GoToLine       => "Go to Line…",
-            Self::SaveFile       => "Save File",
-            Self::NewFile        => "New File",
-            Self::OpenFolder     => "Open Folder…",
-            Self::OpenSettings   => "Open Settings",
-            Self::Find           => "Find in File",
-            Self::FindReplace    => "Find & Replace",
+            Self::ToggleSidebar => "Toggle Sidebar",
+            Self::GoToLine => "Go to Line…",
+            Self::SaveFile => "Save File",
+            Self::NewFile => "New File",
+            Self::OpenFolder => "Open Folder…",
+            Self::OpenSettings => "Open Settings",
+            Self::Find => "Find in File",
+            Self::FindReplace => "Find & Replace",
         }
     }
 
     pub fn shortcut(&self) -> &'static str {
         match self {
             Self::ToggleTerminal => "Ctrl+`",
-            Self::ToggleSidebar  => "Ctrl+B",
-            Self::GoToLine       => "Ctrl+G",
-            Self::SaveFile       => "Ctrl+S",
-            Self::NewFile        => "Ctrl+N",
-            Self::OpenFolder     => "Ctrl+O",
-            Self::OpenSettings   => "Ctrl+,",
-            Self::Find           => "Ctrl+F",
-            Self::FindReplace    => "Ctrl+H",
+            Self::ToggleSidebar => "Ctrl+B",
+            Self::GoToLine => "Ctrl+G",
+            Self::SaveFile => "Ctrl+S",
+            Self::NewFile => "Ctrl+N",
+            Self::OpenFolder => "Ctrl+O",
+            Self::OpenSettings => "Ctrl+,",
+            Self::Find => "Ctrl+F",
+            Self::FindReplace => "Ctrl+H",
         }
     }
 }
@@ -125,11 +125,13 @@ impl CommandPalette {
         let mut triggered_cmd: Option<PaletteCommand> = None;
 
         // Keyboard navigation outside the window (so it fires even when text edit has focus).
-        let (nav_down, nav_up, nav_confirm) = ctx.input(|i| (
-            i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::Tab),
-            i.key_pressed(egui::Key::ArrowUp),
-            i.key_pressed(egui::Key::Enter),
-        ));
+        let (nav_down, nav_up, nav_confirm) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::Tab),
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::Enter),
+            )
+        });
 
         let commands_only = self.query.starts_with('>');
         let effective_query = if commands_only {
@@ -143,7 +145,10 @@ impl CommandPalette {
         if commands_only {
             for cmd in PaletteCommand::all() {
                 if effective_query.is_empty()
-                    || self.matcher.fuzzy_match(cmd.label(), &effective_query).is_some()
+                    || self
+                        .matcher
+                        .fuzzy_match(cmd.label(), &effective_query)
+                        .is_some()
                 {
                     self.entries.push(PaletteEntry::Command(cmd.clone()));
                 }
@@ -155,7 +160,8 @@ impl CommandPalette {
                 }
             } else {
                 let q = &effective_query;
-                let mut scored: Vec<(i64, PathBuf)> = self.cached_files
+                let mut scored: Vec<(i64, PathBuf)> = self
+                    .cached_files
                     .iter()
                     .filter_map(|p| {
                         // Match against relative path so partial paths work (e.g. "src/main")
@@ -172,7 +178,10 @@ impl CommandPalette {
             // Commands at the bottom
             for cmd in PaletteCommand::all() {
                 if effective_query.is_empty()
-                    || self.matcher.fuzzy_match(cmd.label(), &effective_query).is_some()
+                    || self
+                        .matcher
+                        .fuzzy_match(cmd.label(), &effective_query)
+                        .is_some()
                 {
                     self.entries.push(PaletteEntry::Command(cmd.clone()));
                 }
@@ -184,8 +193,12 @@ impl CommandPalette {
         if entry_count == 0 {
             self.selected_idx = 0;
         } else {
-            if nav_down { self.selected_idx = (self.selected_idx + 1) % entry_count; }
-            if nav_up   { self.selected_idx = self.selected_idx.checked_sub(1).unwrap_or(entry_count - 1); }
+            if nav_down {
+                self.selected_idx = (self.selected_idx + 1) % entry_count;
+            }
+            if nav_up {
+                self.selected_idx = self.selected_idx.checked_sub(1).unwrap_or(entry_count - 1);
+            }
             self.selected_idx = self.selected_idx.min(entry_count - 1);
         }
 
@@ -193,8 +206,14 @@ impl CommandPalette {
         if nav_confirm && entry_count > 0 {
             if let Some(entry) = self.entries.get(self.selected_idx) {
                 match entry {
-                    PaletteEntry::File(p) => { opened_file = Some(p.clone()); close = true; }
-                    PaletteEntry::Command(c) => { triggered_cmd = Some(c.clone()); close = true; }
+                    PaletteEntry::File(p) => {
+                        opened_file = Some(p.clone());
+                        close = true;
+                    }
+                    PaletteEntry::Command(c) => {
+                        triggered_cmd = Some(c.clone());
+                        close = true;
+                    }
                 }
             }
         }
@@ -220,7 +239,7 @@ impl CommandPalette {
                             .desired_width(ui.available_width())
                             .hint_text(hint)
                             .font(egui::TextStyle::Monospace)
-                            .lock_focus(true),   // prevents Tab from cycling egui focus
+                            .lock_focus(true), // prevents Tab from cycling egui focus
                     );
                     response.request_focus();
 
@@ -256,11 +275,16 @@ impl CommandPalette {
                                     let label = format!(
                                         "⚡  {}{}",
                                         cmd.label(),
-                                        if cmd.shortcut().is_empty() { String::new() } else { format!("    {}", cmd.shortcut()) }
+                                        if cmd.shortcut().is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!("    {}", cmd.shortcut())
+                                        }
                                     );
                                     let resp = ui.selectable_label(
                                         is_selected,
-                                        egui::RichText::new(label).color(egui::Color32::from_rgb(180, 200, 255)),
+                                        egui::RichText::new(label)
+                                            .color(egui::Color32::from_rgb(180, 200, 255)),
                                     );
                                     if is_selected {
                                         resp.scroll_to_me(None);
@@ -317,13 +341,22 @@ fn collect_workspace_files(workspace: &std::path::Path) -> Vec<PathBuf> {
 }
 
 fn walk_dir_fallback(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.starts_with('.') { continue; }
-        if matches!(name_str.as_ref(), "target" | "node_modules" | "dist" | "build") { continue; }
+        if name_str.starts_with('.') {
+            continue;
+        }
+        if matches!(
+            name_str.as_ref(),
+            "target" | "node_modules" | "dist" | "build"
+        ) {
+            continue;
+        }
         if path.is_dir() {
             walk_dir_fallback(&path, out);
         } else if path.is_file() {
@@ -333,5 +366,7 @@ fn walk_dir_fallback(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
 }
 
 impl Default for CommandPalette {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
