@@ -10,10 +10,10 @@ pub(super) fn resolve_shell() -> (String, Vec<String>) {
                 vec!["powershell.exe".to_string(), "-NoExit".to_string()],
             );
         }
-        return (
+        (
             "cmd.exe".to_string(),
             vec!["cmd.exe".to_string(), "/K".to_string()],
-        );
+        )
     }
 
     #[cfg(not(windows))]
