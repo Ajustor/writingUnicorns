@@ -1,6 +1,7 @@
 pub mod builtin;
 pub mod manager;
 
+use crate::dap::types::DapConfig;
 use crate::editor::highlight::Token;
 
 /// A command that can be registered by a plugin and shown in the command palette.
@@ -76,10 +77,22 @@ pub trait Plugin: Send + Sync {
         None
     }
 
+    /// File extensions handled by this plugin (e.g. `&["rs"]`, `&["ts", "tsx"]`).
+    /// Used to match the correct LSP server to a file.
+    fn file_extensions(&self) -> &[&str] {
+        &[]
+    }
+
     /// Return the LSP server command for this language plugin.
     /// E.g. `Some(("rust-analyzer", vec![]))` for Rust.
     /// Return `None` if this plugin doesn't provide language server support.
     fn lsp_server_command(&self) -> Option<(String, Vec<String>)> {
+        None
+    }
+
+    /// Return a DAP (Debug Adapter Protocol) configuration for this language.
+    /// Return `None` if this plugin does not support debugging.
+    fn dap_config(&self) -> Option<DapConfig> {
         None
     }
 }

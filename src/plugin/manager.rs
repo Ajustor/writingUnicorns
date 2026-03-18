@@ -91,12 +91,26 @@ impl PluginManager {
         None
     }
 
-    /// Return the LSP server command for the plugin that handles the given file extension.
-    /// Returns the first plugin that advertises an LSP server, or `None`.
-    pub fn lsp_server_for_ext(&self, _ext: &str) -> Option<(String, Vec<String>)> {
+    /// Return the DAP configuration for the plugin that handles the given file extension.
+    pub fn dap_config_for_ext(&self, ext: &str) -> Option<crate::dap::types::DapConfig> {
         for plugin in &self.plugins {
-            if let Some(cmd) = plugin.lsp_server_command() {
-                return Some(cmd);
+            if plugin.file_extensions().contains(&ext) {
+                if let Some(cfg) = plugin.dap_config() {
+                    return Some(cfg);
+                }
+            }
+        }
+        None
+    }
+
+    /// Return the LSP server command for the plugin that handles the given file extension.
+    /// Returns the first plugin whose `file_extensions()` includes `ext`, or `None`.
+    pub fn lsp_server_for_ext(&self, ext: &str) -> Option<(String, Vec<String>)> {
+        for plugin in &self.plugins {
+            if plugin.file_extensions().contains(&ext) {
+                if let Some(cmd) = plugin.lsp_server_command() {
+                    return Some(cmd);
+                }
             }
         }
         None

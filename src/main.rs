@@ -3,6 +3,7 @@
 
 mod app;
 mod config;
+pub mod dap;
 mod editor;
 pub mod extension;
 mod filetree;

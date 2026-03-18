@@ -1,3 +1,4 @@
+use crate::dap::types::DapConfig;
 use crate::editor::highlight::Token;
 use crate::extension::manifest::{Capabilities, ExtensionInfo, ExtensionManifest};
 use crate::plugin::{Plugin, PluginContext, PluginResponse};
@@ -15,10 +16,12 @@ impl PythonLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec!["py".to_string()],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }
@@ -43,5 +46,20 @@ impl Plugin for PythonLangExtension {
 
     fn update(&mut self, _ctx: &PluginContext) -> PluginResponse {
         PluginResponse::default()
+    }
+
+    fn dap_config(&self) -> Option<DapConfig> {
+        Some(DapConfig {
+            adapter_cmd: "python3".to_string(),
+            adapter_args: vec!["-m".to_string(), "debugpy.adapter".to_string()],
+            launch_config: serde_json::json!({
+                "type": "python",
+                "request": "launch",
+                "name": "Debug Python",
+                "program": "${file}",
+                "console": "integratedTerminal",
+                "cwd": "${workspaceFolder}"
+            }),
+        })
     }
 }

@@ -24,6 +24,12 @@ pub struct WorkspaceSearch {
     pub is_searching: bool,
     rx: Option<mpsc::Receiver<SearchResults>>,
     pub selected_match: Option<usize>,
+    // ── Replace ────────────────────────────────────────────────────────────
+    pub replace_query: String,
+    pub show_replace: bool,
+    replace_rx: Option<mpsc::Receiver<usize>>,
+    pub is_replacing: bool,
+    pub replace_count: Option<usize>,
 }
 
 impl WorkspaceSearch {
@@ -35,7 +41,27 @@ impl WorkspaceSearch {
             is_searching: false,
             rx: None,
             selected_match: None,
+            replace_query: String::new(),
+            show_replace: false,
+            replace_rx: None,
+            is_replacing: false,
+            replace_count: None,
         }
+    }
+
+    pub fn start_replace_all(&mut self, workspace: PathBuf) {
+        if self.query.is_empty() { return; }
+        let query = self.query.clone();
+        let replacement = self.replace_query.clone();
+        let case_sensitive = self.case_sensitive;
+        let (tx, rx) = mpsc::channel();
+        self.replace_rx = Some(rx);
+        self.is_replacing = true;
+        self.replace_count = None;
+        std::thread::spawn(move || {
+            let count = replace_in_dir(&workspace, &query, &replacement, case_sensitive);
+            let _ = tx.send(count);
+        });
     }
 
     pub fn start_search(&mut self, workspace: PathBuf) {
@@ -77,6 +103,13 @@ impl WorkspaceSearch {
                 self.rx = None;
             }
         }
+        if let Some(rx) = &self.replace_rx {
+            if let Ok(count) = rx.try_recv() {
+                self.replace_count = Some(count);
+                self.is_replacing = false;
+                self.replace_rx = None;
+            }
+        }
     }
 
     /// Render the search panel. Returns `Some((path, line))` when a result is clicked.
@@ -89,11 +122,16 @@ impl WorkspaceSearch {
         let mut open_file: Option<(PathBuf, usize)> = None;
 
         ui.horizontal(|ui| {
+            // Toggle replace row
+            let rep_icon = if self.show_replace { "▴" } else { "▾" };
+            if ui.small_button(rep_icon).on_hover_text("Toggle replace").clicked() {
+                self.show_replace = !self.show_replace;
+            }
             ui.label("🔍");
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.query)
                     .hint_text("Search in workspace…")
-                    .desired_width(ui.available_width() - 40.0),
+                    .desired_width(ui.available_width() - 55.0),
             );
             if (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 || resp.changed()
@@ -105,6 +143,38 @@ impl WorkspaceSearch {
                 }
             }
         });
+
+        if self.show_replace {
+            let mut do_replace_all = false;
+            ui.horizontal(|ui| {
+                ui.label("↔");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.replace_query)
+                        .hint_text("Replace with…")
+                        .desired_width(ui.available_width() - 90.0),
+                );
+                if ui.small_button("Replace All").clicked() {
+                    do_replace_all = true;
+                }
+            });
+            if do_replace_all {
+                if let Some(ws) = workspace {
+                    self.start_replace_all(ws.clone());
+                }
+            }
+            if self.is_replacing {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(egui::RichText::new("Replacing…").size(11.0).color(egui::Color32::GRAY));
+                });
+            } else if let Some(count) = self.replace_count {
+                ui.label(
+                    egui::RichText::new(format!("Replaced {} occurrence(s)", count))
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(100, 220, 100)),
+                );
+            }
+        }
 
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.case_sensitive, "Aa");
@@ -285,6 +355,48 @@ fn search_file(path: &Path, query: &str, case_sensitive: bool, matches: &mut Vec
             });
         }
     }
+}
+
+fn replace_in_dir(dir: &Path, query: &str, replacement: &str, case_sensitive: bool) -> usize {
+    let mut count = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') { continue; }
+        if matches!(name_str.as_ref(), "target" | "node_modules" | ".git" | "dist" | "build") { continue; }
+        if path.is_dir() {
+            count += replace_in_dir(&path, query, replacement, case_sensitive);
+        } else if path.is_file() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !is_text_extension(ext) { continue; }
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let (new_content, n) = if case_sensitive {
+                    let n = content.matches(query).count();
+                    (content.replace(query, replacement), n)
+                } else {
+                    let q_lc = query.to_lowercase();
+                    let mut result = String::with_capacity(content.len());
+                    let mut remaining = content.as_str();
+                    let mut n = 0;
+                    while let Some(pos) = remaining.to_lowercase().find(&q_lc) {
+                        result.push_str(&remaining[..pos]);
+                        result.push_str(replacement);
+                        remaining = &remaining[pos + query.len()..];
+                        n += 1;
+                    }
+                    result.push_str(remaining);
+                    (result, n)
+                };
+                if n > 0 {
+                    let _ = std::fs::write(&path, new_content);
+                    count += n;
+                }
+            }
+        }
+    }
+    count
 }
 
 fn is_text_extension(ext: &str) -> bool {

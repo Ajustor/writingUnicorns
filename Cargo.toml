@@ -33,6 +33,7 @@ rfd = "0.15"
 egui-phosphor = "0.9"
 vte = "0.13"
 miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+regex = "1"
 
 [profile.release]
 opt-level = 3

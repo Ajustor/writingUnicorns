@@ -1,6 +1,14 @@
 use crate::editor::Editor;
 use crate::git::GitStatus;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum LspStatus {
+    Inactive,
+    Connecting,
+    Ready,
+    Error,
+}
+
 pub struct StatusBar {}
 
 impl StatusBar {
@@ -8,7 +16,7 @@ impl StatusBar {
         Self {}
     }
 
-    pub fn show(&self, ui: &mut egui::Ui, editor: &Editor, git: &GitStatus) {
+    pub fn show(&self, ui: &mut egui::Ui, editor: &Editor, git: &GitStatus, lsp_status: LspStatus) {
         let bg = egui::Color32::from_rgb(0, 122, 204);
         egui::Frame::new().fill(bg).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -39,17 +47,66 @@ impl StatusBar {
                             .small(),
                     );
                     ui.separator();
+
+                    // Indent style indicator
+                    let indent_label = if editor.detected_indent_spaces {
+                        format!("Spaces: {}", editor.detected_indent_size)
+                    } else {
+                        "Tabs".to_string()
+                    };
+                    ui.label(
+                        egui::RichText::new(indent_label)
+                            .color(egui::Color32::WHITE)
+                            .small(),
+                    );
+                    ui.separator();
                 }
 
-                let (row, col) = editor.cursor.position();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (row, col) = editor.cursor.position();
                     ui.label(
                         egui::RichText::new(format!("Ln {}, Col {}", row + 1, col + 1))
                             .color(egui::Color32::WHITE)
                             .small(),
                     );
+                    ui.separator();
+
+                    // LSP status dot
+                    match lsp_status {
+                        LspStatus::Inactive => {}
+                        LspStatus::Connecting => {
+                            ui.label(
+                                egui::RichText::new("⬤ LSP")
+                                    .color(egui::Color32::from_rgb(255, 165, 0))
+                                    .small(),
+                            );
+                            ui.separator();
+                        }
+                        LspStatus::Ready => {
+                            ui.label(
+                                egui::RichText::new("⬤ LSP")
+                                    .color(egui::Color32::from_rgb(80, 220, 100))
+                                    .small(),
+                            );
+                            ui.separator();
+                        }
+                        LspStatus::Error => {
+                            ui.label(
+                                egui::RichText::new("⬤ LSP")
+                                    .color(egui::Color32::from_rgb(220, 60, 60))
+                                    .small(),
+                            );
+                            ui.separator();
+                        }
+                    }
                 });
             });
         });
+    }
+}
+
+impl Default for StatusBar {
+    fn default() -> Self {
+        Self::new()
     }
 }

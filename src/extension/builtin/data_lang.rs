@@ -15,10 +15,12 @@ impl DataLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec!["json".to_string(), "toml".to_string()],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }

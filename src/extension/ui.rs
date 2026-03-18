@@ -1,4 +1,5 @@
-use super::installer::{InstallJob, InstallStatus};
+use super::installer::{InstallJob, InstallStatus, WorkspaceStatus};
+use super::manifest::SourceKind;
 use super::registry::ExtensionRegistry;
 
 pub struct ExtensionsPanel {
@@ -11,6 +12,16 @@ pub struct ExtensionsPanel {
     pub generate_name: String,
     pub generate_path: String,
     pub template_message: Option<Result<String, String>>,
+    // Workspace installer
+    pub workspace_path: String,
+    pub workspace_job: Option<std::sync::mpsc::Receiver<WorkspaceStatus>>,
+    pub workspace_status: WorkspaceStatus,
+    pub workspace_log: Vec<String>,
+    // Update jobs: extension_id → receiver
+    pub update_jobs: std::collections::HashMap<String, std::sync::mpsc::Receiver<InstallStatus>>,
+    pub update_statuses: std::collections::HashMap<String, InstallStatus>,
+    /// Set to true when any installation completes — the app should reload LSP/plugins.
+    pub plugins_changed: bool,
 }
 
 impl ExtensionsPanel {
@@ -30,21 +41,100 @@ impl ExtensionsPanel {
             generate_name: String::new(),
             generate_path: default_path,
             template_message: None,
+            workspace_path: String::new(),
+            workspace_job: None,
+            workspace_status: WorkspaceStatus::Idle,
+            workspace_log: Vec::new(),
+            update_jobs: std::collections::HashMap::new(),
+            update_statuses: std::collections::HashMap::new(),
+            plugins_changed: false,
         }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, registry: &mut ExtensionRegistry) {
+        // Poll update jobs
+        let finished_ids: Vec<String> = self.update_jobs.iter()
+            .filter_map(|(id, rx)| {
+                if let Ok(status) = rx.try_recv() {
+                    Some((id.clone(), status))
+                } else {
+                    None
+                }
+            })
+            .map(|(id, status)| {
+                self.update_statuses.insert(id.clone(), status.clone());
+                if matches!(status, InstallStatus::Done | InstallStatus::Failed(_)) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect();
+        for id in &finished_ids {
+            self.update_jobs.remove(id);
+            if matches!(self.update_statuses.get(id), Some(InstallStatus::Done)) {
+                registry.load_installed();
+                registry.check_updates();
+                self.plugins_changed = true;
+            }
+        }
+
         // Poll install job
         if let Some(rx) = &self.install_job {
             if let Ok(status) = rx.try_recv() {
                 let done = matches!(status, InstallStatus::Done | InstallStatus::Failed(_));
-                if matches!(status, InstallStatus::Done) {
+                let success = matches!(status, InstallStatus::Done);
+                if success {
                     self.install_url.clear();
                 }
                 self.install_status = status;
                 if done {
                     self.install_job = None;
+                    if success {
+                        registry.load_installed();
+                        self.plugins_changed = true;
+                    }
+                }
+            }
+        }
+
+        // Poll workspace install job
+        if self.workspace_job.is_some() {
+            let mut finished = false;
+            let mut reload = false;
+            while let Ok(status) = self.workspace_job.as_ref().unwrap().try_recv() {
+                let msg = match &status {
+                    WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
+                    WorkspaceStatus::Installing { current, done, total } => {
+                        format!("📦 [{}/{total}] Installing {current}…", done + 1)
+                    }
+                    WorkspaceStatus::InstallingDep { module, step } => {
+                        format!("  ↳ [{module}] {step}")
+                    }
+                    WorkspaceStatus::ModuleFailed { name, reason } => {
+                        format!("⚠ {name}: {reason}")
+                    }
+                    WorkspaceStatus::Done { installed, total } => {
+                        format!("✓ Done — {installed}/{total} modules installed")
+                    }
+                    WorkspaceStatus::Failed(e) => format!("✗ {e}"),
+                    WorkspaceStatus::Idle => String::new(),
+                };
+                if !msg.is_empty() {
+                    self.workspace_log.push(msg);
+                }
+                if matches!(&status, WorkspaceStatus::Done { .. } | WorkspaceStatus::Failed(_)) {
+                    finished = true;
+                    reload = matches!(&status, WorkspaceStatus::Done { .. });
+                }
+                self.workspace_status = status;
+            }
+            if finished {
+                self.workspace_job = None;
+                if reload {
                     registry.load_installed();
+                    self.plugins_changed = true;
                 }
             }
         }
@@ -56,13 +146,30 @@ impl ExtensionsPanel {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.search_query)
                         .hint_text("Search extensions…")
-                        .desired_width(f32::INFINITY),
+                        .desired_width(ui.available_width()),
                 );
             });
             ui.add_space(6.0);
 
             // ── INSTALLED ────────────────────────────────────────────────────
             ui.collapsing("INSTALLED", |ui| {
+                // "Check for updates" button
+                ui.horizontal(|ui| {
+                    if ui.small_button("⟳ Check for updates").clicked() {
+                        registry.check_updates();
+                    }
+                    let update_count = registry.installed.iter()
+                        .filter(|e| e.update_available.is_some())
+                        .count();
+                    if update_count > 0 {
+                        ui.label(
+                            egui::RichText::new(format!("{update_count} update(s) available"))
+                                .small()
+                                .color(egui::Color32::from_rgb(255, 200, 60)),
+                        );
+                    }
+                });
+                ui.add_space(4.0);
                 let query = self.search_query.to_lowercase();
                 let mut to_uninstall: Option<String> = None;
 
@@ -177,6 +284,55 @@ impl ExtensionsPanel {
                                 }
                             });
 
+                            // Update badge + button
+                            if let Some(new_ver) = ext.update_available.clone() {
+                                ui.add_space(2.0);
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "↑ v{new_ver} available"
+                                        ))
+                                        .small()
+                                        .color(egui::Color32::from_rgb(255, 200, 60)),
+                                    );
+                                    let ext_id = ext.manifest.extension.id.clone();
+                                    let is_updating = self.update_jobs.contains_key(&ext_id);
+                                    let btn = ui.add_enabled(
+                                        !is_updating,
+                                        egui::Button::new(
+                                            egui::RichText::new("Update")
+                                                .small()
+                                                .color(egui::Color32::WHITE),
+                                        )
+                                        .fill(egui::Color32::from_rgb(0, 120, 212)),
+                                    );
+                                    if is_updating {
+                                        ui.spinner();
+                                    }
+                                    if btn.clicked() {
+                                        if let Some(rx) = start_update_job(&ext.source, &registry.extensions_dir) {
+                                            self.update_jobs.insert(ext_id.clone(), rx);
+                                            self.update_statuses.insert(ext_id, InstallStatus::Building);
+                                        }
+                                    }
+                                });
+                                // Show update status if in progress
+                                if let Some(status) = self.update_statuses.get(&ext.manifest.extension.id) {
+                                    let (txt, color) = match status {
+                                        InstallStatus::Cloning => ("Cloning…", egui::Color32::from_gray(180)),
+                                        InstallStatus::Building => ("Building…", egui::Color32::from_gray(180)),
+                                        InstallStatus::Installing => ("Installing…", egui::Color32::from_gray(180)),
+                                        InstallStatus::InstallingDep(s) => (s.as_str(), egui::Color32::from_gray(160)),
+                                        InstallStatus::Done => ("✓ Updated!", egui::Color32::from_rgb(100, 200, 100)),
+                                        InstallStatus::Failed(e) => (e.as_str(), egui::Color32::from_rgb(240, 80, 80)),
+                                        InstallStatus::Idle => ("", egui::Color32::TRANSPARENT),
+                                    };
+                                    if !txt.is_empty() {
+                                        ui.label(egui::RichText::new(txt).small().color(color));
+                                    }
+                                }
+                            }
+
                             // Enable/disable
                             ui.horizontal(|ui| {
                                 ui.checkbox(&mut ext.enabled, "Enabled");
@@ -227,6 +383,7 @@ impl ExtensionsPanel {
                     InstallStatus::Cloning => ("Cloning…".to_string(), false),
                     InstallStatus::Building => ("Building…".to_string(), false),
                     InstallStatus::Installing => ("Installing…".to_string(), false),
+                    InstallStatus::InstallingDep(step) => (format!("↳ {step}"), false),
                     InstallStatus::Done => ("✓ Installed successfully!".to_string(), false),
                     InstallStatus::Failed(e) => (format!("Error: {e}"), true),
                 };
@@ -253,6 +410,7 @@ impl ExtensionsPanel {
 
             // ── LOAD FROM LOCAL FOLDER ────────────────────────────────────────
             ui.collapsing("📁 Load from local folder", |ui| {
+                ui.set_max_width(ui.available_width());
                 ui.label(
                     egui::RichText::new(
                         "Load an extension from a local directory.\nThe folder must contain a manifest.toml.",
@@ -281,6 +439,7 @@ impl ExtensionsPanel {
                             self.local_install_job = None;
                             if matches!(status, InstallStatus::Done) {
                                 registry.load_installed();
+                                self.plugins_changed = true;
                             }
                         }
                     }
@@ -300,6 +459,12 @@ impl ExtensionsPanel {
                             ui.label("Installing…");
                         });
                     }
+                    InstallStatus::InstallingDep(step) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(format!("↳ {step}"));
+                        });
+                    }
                     InstallStatus::Done => {
                         ui.label(
                             egui::RichText::new("✓ Installed!")
@@ -317,6 +482,111 @@ impl ExtensionsPanel {
             });
 
             ui.add_space(8.0);
+
+            // ── INSTALL FROM WORKSPACE ────────────────────────────────────────
+            ui.collapsing("⚙ BUILD FROM SOURCES", |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Point to a Cargo workspace that contains modules with manifest.toml.\n\
+                         Writing Unicorns will run cargo build --release and install all modules.",
+                    )
+                    .size(11.0)
+                    .color(egui::Color32::GRAY),
+                );
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    ui.label("Workspace:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.workspace_path)
+                            .hint_text("/path/to/modules")
+                            .desired_width(ui.available_width() - 64.0),
+                    );
+                    if ui.button("Browse…").clicked() {
+                        if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                            self.workspace_path = folder.to_string_lossy().to_string();
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+
+                let is_building = self.workspace_job.is_some();
+                ui.horizontal(|ui| {
+                    let can_build = !is_building && !self.workspace_path.is_empty();
+                    if ui
+                        .add_enabled(
+                            can_build,
+                            egui::Button::new(
+                                egui::RichText::new("▶ Build & Install All")
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(0, 140, 80)),
+                        )
+                        .clicked()
+                    {
+                        self.workspace_log.clear();
+                        self.workspace_status = WorkspaceStatus::Building;
+                        let rx = super::installer::install_from_workspace(
+                            std::path::PathBuf::from(&self.workspace_path),
+                            registry.extensions_dir.clone(),
+                        );
+                        self.workspace_job = Some(rx);
+                    }
+
+                    if is_building {
+                        ui.spinner();
+                    }
+
+                    if !self.workspace_log.is_empty() && ui.small_button("Clear log").clicked() {
+                        self.workspace_log.clear();
+                        self.workspace_status = WorkspaceStatus::Idle;
+                    }
+                });
+
+                // Log output
+                if !self.workspace_log.is_empty() {
+                    ui.add_space(4.0);
+                    // Capture the sidebar width BEFORE entering the Frame so we can
+                    // clamp label widths inside — prevents the sidebar from expanding.
+                    let log_width = ui.available_width();
+                    let log_bg = egui::Color32::from_rgb(18, 18, 18);
+                    egui::Frame::new()
+                        .fill(log_bg)
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(120.0)
+                                .auto_shrink([false, false])
+                                .stick_to_bottom(true)
+                                .id_salt("ws_log_scroll")
+                                .show(ui, |ui| {
+                                    // Hard-cap content width so labels never widen the sidebar.
+                                    ui.set_max_width((log_width - 12.0).max(40.0));
+                                    ui.style_mut().spacing.item_spacing.y = 2.0;
+                                    for line in &self.workspace_log {
+                                        let color = if line.starts_with('✓') || line.contains("Done") {
+                                            egui::Color32::from_rgb(100, 200, 100)
+                                        } else if line.starts_with('✗') || line.starts_with('⚠') {
+                                            egui::Color32::from_rgb(240, 120, 80)
+                                        } else {
+                                            egui::Color32::from_gray(180)
+                                        };
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(line)
+                                                    .size(11.0)
+                                                    .color(color)
+                                                    .monospace(),
+                                            )
+                                            .wrap(),
+                                        );
+                                    }
+                                });
+                        });
+                }
+            });
+
+            ui.add_space(8.0);
             ui.collapsing("CREATE EXTENSION", |ui| {
                 ui.label("Create Extension Template");
                 ui.add_space(4.0);
@@ -326,7 +596,7 @@ impl ExtensionsPanel {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.generate_name)
                             .hint_text("my-extension")
-                            .desired_width(f32::INFINITY),
+                            .desired_width(ui.available_width()),
                     );
                 });
                 ui.add_space(2.0);
@@ -334,7 +604,7 @@ impl ExtensionsPanel {
                     ui.label("Path:");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.generate_path)
-                            .desired_width(f32::INFINITY),
+                            .desired_width(ui.available_width()),
                     );
                 });
                 ui.add_space(4.0);
@@ -386,6 +656,32 @@ impl ExtensionsPanel {
                 }
             });
         });
+    }
+}
+
+/// Start a reinstall job based on where the extension was originally installed from.
+fn start_update_job(
+    source: &Option<super::manifest::ExtensionSource>,
+    extensions_dir: &std::path::Path,
+) -> Option<std::sync::mpsc::Receiver<InstallStatus>> {
+    let source = source.as_ref()?;
+    let ext_dir = extensions_dir.to_path_buf();
+    match &source.kind {
+        SourceKind::Workspace => {
+            let ws_path = std::path::PathBuf::from(source.path.as_deref()?);
+            let member = source.member.as_deref()?.to_string();
+            // Reinstall the single member folder (already built in the workspace target/)
+            let folder = ws_path.join(&member);
+            Some(super::installer::install_from_folder(folder, ext_dir))
+        }
+        SourceKind::Folder => {
+            let folder = std::path::PathBuf::from(source.path.as_deref()?);
+            Some(super::installer::install_from_folder(folder, ext_dir))
+        }
+        SourceKind::Git => {
+            let url = source.url.as_deref()?.to_string();
+            Some(super::installer::InstallJob::start(url, ext_dir))
+        }
     }
 }
 

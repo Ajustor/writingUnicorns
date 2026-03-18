@@ -2,6 +2,7 @@ use crate::app::WritingUnicorns;
 use crate::config::Config;
 use crate::terminal::Terminal;
 use crate::ui::run_panel::RunPanelAction;
+use crate::ui::statusbar::LspStatus;
 use egui::{
     Align, CentralPanel, Color32, Context, Layout, RichText, SidePanel, Stroke, TopBottomPanel,
 };
@@ -14,10 +15,50 @@ pub enum SidebarTab {
     Git,
     Extensions,
     Run,
+    Outline,
+    Debug,
 }
 
 pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
     ctx.set_visuals(dark_visuals(&app.config));
+
+    // ── Auto-save (2-second inactivity) ──────────────────────────────────────
+    if app.editor.content_version != app.last_edit_version_seen {
+        app.last_edit_version_seen = app.editor.content_version;
+        app.last_edit_instant = Some(std::time::Instant::now());
+    }
+    if let Some(t) = app.last_edit_instant {
+        if t.elapsed().as_secs() >= 2 {
+            if app.editor.is_modified {
+                let _ = app.editor.save();
+            }
+            app.last_edit_instant = None;
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+    }
+
+    // ── File tree refresh on window focus ────────────────────────────────────
+    {
+        let focused_now = ctx.input(|i| i.focused);
+        static LAST_FOCUSED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        let was_focused = LAST_FOCUSED.swap(focused_now, std::sync::atomic::Ordering::Relaxed);
+        if focused_now && !was_focused {
+            // Window just gained focus — reload file tree to pick up external changes.
+            if let Some(root) = &mut app.file_tree.root {
+                root.load_children();
+            }
+        }
+    }
+
+    // ── Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs ────────────────────────────────
+    if ctx.input(|i| i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab)) {
+        app.cycle_tab_next();
+    }
+    if ctx.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab)) {
+        app.cycle_tab_prev();
+    }
 
     // Drain pending folder/file picked by dialog threads
     if let Some(rx) = app.folder_pending.take() {
@@ -131,7 +172,18 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
     TopBottomPanel::bottom("status_bar")
         .exact_height(22.0)
         .show(ctx, |ui| {
-            app.status_bar.show(ui, &app.editor, &app.git_status);
+            let lsp_status = {
+                let ext = app.editor.current_path.as_ref()
+                    .and_then(|p| p.extension())
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                match app.lsp.get(ext) {
+                    None => LspStatus::Inactive,
+                    Some(c) if c.is_connected => LspStatus::Ready,
+                    Some(_) => LspStatus::Connecting,
+                }
+            };
+            app.status_bar.show(ui, &app.editor, &app.git_status, lsp_status);
         });
 
     if app.show_terminal {
@@ -351,6 +403,16 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                         tooltip: "Run",
                         tab: SidebarTab::Run,
                     },
+                    ActivityItem {
+                        icon: egui_phosphor::regular::LIST,
+                        tooltip: "Outline",
+                        tab: SidebarTab::Outline,
+                    },
+                    ActivityItem {
+                        icon: egui_phosphor::regular::BUG,
+                        tooltip: "Debug",
+                        tab: SidebarTab::Debug,
+                    },
                 ];
 
                 for item in &items {
@@ -444,6 +506,8 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                     SidebarTab::Git => "GIT",
                     SidebarTab::Extensions => "EXTENSIONS",
                     SidebarTab::Run => "RUN",
+                    SidebarTab::Outline => "OUTLINE",
+                    SidebarTab::Debug => "DEBUG",
                 };
                 ui.horizontal(|ui| {
                     ui.add_space(4.0);
@@ -463,6 +527,67 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                                 app.open_file(path);
                             }
                         });
+                        // Handle context menu actions from the file tree
+                        if let Some(action) = app.file_tree.context_action.take() {
+                            use crate::filetree::FileTreeAction;
+                            match action {
+                                FileTreeAction::OpenFile(path) => app.open_file(path),
+                                FileTreeAction::Delete(path) => {
+                                    if path.is_dir() {
+                                        let _ = std::fs::remove_dir_all(&path);
+                                    } else {
+                                        let _ = std::fs::remove_file(&path);
+                                    }
+                                    if let Some(root) = &mut app.file_tree.root {
+                                        root.load_children();
+                                    }
+                                }
+                                FileTreeAction::Rename(old_path, new_name) => {
+                                    if let Some(parent) = old_path.parent() {
+                                        let new_path = parent.join(&new_name);
+                                        let _ = std::fs::rename(&old_path, &new_path);
+                                        if let Some(root) = &mut app.file_tree.root {
+                                            root.load_children();
+                                        }
+                                    }
+                                }
+                                FileTreeAction::NewFile(parent) => {
+                                    // Create with a temp name then immediately enter inline rename
+                                    let new_path = find_free_path(&parent, "untitled", false);
+                                    let _ = std::fs::write(&new_path, "");
+                                    if let Some(root) = &mut app.file_tree.root {
+                                        root.load_children();
+                                    }
+                                    let name = new_path.file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_default();
+                                    app.file_tree.rename_state = Some((new_path.clone(), name));
+                                    app.open_file(new_path);
+                                }
+                                FileTreeAction::NewFolder(parent) => {
+                                    let new_path = find_free_path(&parent, "new_folder", true);
+                                    let _ = std::fs::create_dir(&new_path);
+                                    if let Some(root) = &mut app.file_tree.root {
+                                        root.load_children();
+                                    }
+                                    let name = new_path.file_name()
+                                        .map(|n| n.to_string_lossy().to_string())
+                                        .unwrap_or_default();
+                                    app.file_tree.rename_state = Some((new_path, name));
+                                }
+                                FileTreeAction::CopyPath(path) => {
+                                    ctx.copy_text(path.to_string_lossy().to_string());
+                                }
+                                FileTreeAction::RevealInExplorer(path) => {
+                                    let target = if path.is_dir() {
+                                        path.clone()
+                                    } else {
+                                        path.parent().map(|p| p.to_path_buf()).unwrap_or(path)
+                                    };
+                                    let _ = std::process::Command::new("xdg-open").arg(&target).spawn();
+                                }
+                            }
+                        }
                     }
                     SidebarTab::Search => {
                         if let Some((path, line)) =
@@ -496,7 +621,118 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                             }
                         }
                     }
+                    SidebarTab::Debug => {
+                        let action = app.debugger_panel.show(ui, &app.dap);
+                        if action.start_or_continue {
+                            if app.dap.is_paused() {
+                                if let Some(tid) = app.dap.paused_thread_id() {
+                                    if let Some(sess) = &mut app.dap.session {
+                                        sess.continue_execution(tid);
+                                    }
+                                }
+                            } else if !app.dap.is_active() {
+                                app.start_debug_session();
+                            }
+                        }
+                        if action.stop {
+                            app.dap.stop_session();
+                        }
+                        if action.step_over {
+                            if let Some(tid) = app.dap.paused_thread_id() {
+                                if let Some(sess) = &mut app.dap.session { sess.next_step(tid); }
+                            }
+                        }
+                        if action.step_in {
+                            if let Some(tid) = app.dap.paused_thread_id() {
+                                if let Some(sess) = &mut app.dap.session { sess.step_in(tid); }
+                            }
+                        }
+                        if action.step_out {
+                            if let Some(tid) = app.dap.paused_thread_id() {
+                                if let Some(sess) = &mut app.dap.session { sess.step_out(tid); }
+                            }
+                        }
+                        if action.pause {
+                            if let Some(sess) = &mut app.dap.session {
+                                sess.pause(1);
+                            }
+                        }
+                        if let Some((path, line)) = action.navigate_to {
+                            app.open_file_at_line(path, line);
+                        }
+                    }
+                    SidebarTab::Outline => {
+                        let current_path = app.editor.current_path.clone();
+                        let symbols = app.outline_symbols.clone();
+                        if symbols.is_empty() {
+                            ui.label(
+                                egui::RichText::new("No symbols found")
+                                    .color(egui::Color32::GRAY),
+                            );
+                        } else {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                let mut nav_to: Option<(std::path::PathBuf, usize)> = None;
+                                for sym in &symbols {
+                                    let icon = match sym.kind.as_str() {
+                                        "Function" | "Method" => "ƒ",
+                                        "Class" | "Struct" => "◻",
+                                        "Enum" => "⊞",
+                                        "Variable" | "Constant" => "≡",
+                                        "Interface" => "Ι",
+                                        _ => "•",
+                                    };
+                                    let label = format!("{} {} ({})", icon, sym.name, sym.kind);
+                                    if ui.selectable_label(false, label).clicked() {
+                                        if let Some(ref path) = current_path {
+                                            nav_to = Some((path.clone(), sym.line as usize));
+                                        }
+                                    }
+                                }
+                                if let Some((path, line)) = nav_to {
+                                    app.open_file_at_line(path, line);
+                                }
+                            });
+                        }
+                    }
                 }
+            });
+    }
+
+    // References panel (bottom)
+    if app.show_references {
+        TopBottomPanel::bottom("references_panel")
+            .resizable(true)
+            .min_height(80.0)
+            .default_height(150.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("REFERENCES ({})", app.references_result.len()))
+                            .size(11.0)
+                            .color(Color32::from_gray(150))
+                            .strong(),
+                    );
+                    if ui.button("✕").clicked() {
+                        app.show_references = false;
+                    }
+                });
+                ui.separator();
+                let refs = app.references_result.clone();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let mut nav_to: Option<(std::path::PathBuf, usize)> = None;
+                    for (path, line, preview) in &refs {
+                        let filename = path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let label = format!("{}:{} {}", filename, line + 1, preview);
+                        if ui.selectable_label(false, label).clicked() {
+                            nav_to = Some((path.clone(), *line as usize));
+                        }
+                    }
+                    if let Some((path, line)) = nav_to {
+                        app.open_file_at_line(path, line);
+                    }
+                });
             });
     }
 
@@ -556,9 +792,88 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                 }
             } else if app.editor.current_path.is_some() || !app.editor.buffer.to_string().is_empty()
             {
+                // ── Breadcrumbs bar ───────────────────────────────────────────
+                if let Some(ref path) = app.editor.current_path.clone() {
+                    let crumb_height = 22.0;
+                    let (crumb_rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), crumb_height),
+                        egui::Sense::hover(),
+                    );
+                    let crumb_bg = egui::Color32::from_rgb(
+                        app.config.theme.background[0].saturating_add(12),
+                        app.config.theme.background[1].saturating_add(12),
+                        app.config.theme.background[2].saturating_add(12),
+                    );
+                    ui.painter().rect_filled(crumb_rect, 0.0, crumb_bg);
+                    let mut crumb_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(crumb_rect)
+                            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                    );
+                    crumb_ui.add_space(8.0);
+                    // Show up to last 3 path components
+                    let components: Vec<String> = path.components()
+                        .map(|c| c.as_os_str().to_string_lossy().to_string())
+                        .filter(|s| !s.is_empty() && s != "/")
+                        .collect();
+                    let shown: Vec<&str> = components.iter()
+                        .rev().take(3).rev()
+                        .map(|s| s.as_str())
+                        .collect();
+                    for (i, part) in shown.iter().enumerate() {
+                        if i > 0 {
+                            crumb_ui.label(
+                                egui::RichText::new(" › ")
+                                    .color(egui::Color32::from_gray(90))
+                                    .size(11.0),
+                            );
+                        }
+                        crumb_ui.label(
+                            egui::RichText::new(*part)
+                                .color(egui::Color32::from_gray(160))
+                                .size(11.0),
+                        );
+                    }
+                    // Current symbol
+                    if let Some(ref sym) = app.editor.current_symbol.clone() {
+                        crumb_ui.label(
+                            egui::RichText::new(" › ")
+                                .color(egui::Color32::from_gray(90))
+                                .size(11.0),
+                        );
+                        crumb_ui.label(
+                            egui::RichText::new(sym.as_str())
+                                .color(egui::Color32::from_rgb(180, 200, 255))
+                                .size(11.0),
+                        );
+                    }
+                }
+
+                // Update current symbol from outline
+                {
+                    let (cur_row, _) = app.editor.cursor.position();
+                    app.editor.current_symbol = app.outline_symbols.iter()
+                        .filter(|s| s.line as usize <= cur_row)
+                        .last()
+                        .map(|s| s.name.clone());
+                }
+
                 app.editor.workspace_path = app.workspace_path.clone();
                 let lsp_hover = app.lsp_hover_result.take();
-                app.editor.show(ui, &app.config, &app.plugin_manager, lsp_hover);
+                // Compute breakpoint lines for the current file (1-based from DAP, 0-based for gutter).
+                let bp_lines: std::collections::HashSet<usize> = app
+                    .editor
+                    .current_path
+                    .as_ref()
+                    .map(|p| {
+                        app.dap
+                            .breakpoint_lines_for(p)
+                            .iter()
+                            .map(|l| l.saturating_sub(1)) // convert 1-based → 0-based
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                app.editor.show(ui, &app.config, &app.plugin_manager, lsp_hover, &bp_lines);
             } else {
                 welcome_screen(ui);
             }
@@ -590,6 +905,22 @@ fn welcome_screen(ui: &mut egui::Ui) {
                 .color(egui::Color32::from_rgb(150, 200, 150)),
         );
     });
+}
+
+/// Find a free path like `parent/base`, `parent/base1`, `parent/base2`, …
+fn find_free_path(parent: &std::path::Path, base: &str, is_dir: bool) -> std::path::PathBuf {
+    let candidate = parent.join(base);
+    if !candidate.exists() {
+        return candidate;
+    }
+    for i in 1..=999 {
+        let name = format!("{}{}", base, i);
+        let c = parent.join(&name);
+        if !c.exists() {
+            return c;
+        }
+    }
+    parent.join(base) // fallback
 }
 
 fn dark_visuals(config: &Config) -> egui::Visuals {

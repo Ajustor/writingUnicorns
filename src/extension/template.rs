@@ -30,8 +30,9 @@ author = "Author"
 repository = ""
 
 [capabilities]
+# File extensions this module handles, e.g. ["rs", "toml"]
 languages = []
-commands = []
+commands  = []
 "#
     );
     std::fs::write(ext_dir.join("manifest.toml"), manifest_toml)?;

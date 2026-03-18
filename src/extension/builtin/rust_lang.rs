@@ -1,3 +1,4 @@
+use crate::dap::types::DapConfig;
 use crate::editor::highlight::Token;
 use crate::extension::manifest::{Capabilities, ExtensionInfo, ExtensionManifest};
 use crate::plugin::{Plugin, PluginContext, PluginResponse};
@@ -15,10 +16,12 @@ impl RustLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec!["rs".to_string()],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }
@@ -50,6 +53,22 @@ impl Plugin for RustLangExtension {
 
     fn update(&mut self, _ctx: &PluginContext) -> PluginResponse {
         PluginResponse::default()
+    }
+
+    fn dap_config(&self) -> Option<DapConfig> {
+        Some(DapConfig {
+            adapter_cmd: "codelldb".to_string(),
+            adapter_args: vec![],
+            launch_config: serde_json::json!({
+                "type": "lldb",
+                "request": "launch",
+                "name": "Debug Rust",
+                "program": "${workspaceFolder}/target/debug/app",
+                "args": [],
+                "cwd": "${workspaceFolder}",
+                "env": {}
+            }),
+        })
     }
 }
 

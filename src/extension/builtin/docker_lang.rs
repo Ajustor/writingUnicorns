@@ -15,10 +15,12 @@ impl DockerLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec!["dockerfile".to_string()],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }

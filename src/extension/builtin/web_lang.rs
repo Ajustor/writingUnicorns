@@ -1,3 +1,4 @@
+use crate::dap::types::DapConfig;
 use crate::editor::highlight::Token;
 use crate::extension::manifest::{Capabilities, ExtensionInfo, ExtensionManifest};
 use crate::plugin::{Plugin, PluginContext, PluginResponse};
@@ -16,6 +17,7 @@ impl WebLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec![
                     "js".to_string(),
@@ -26,6 +28,7 @@ impl WebLangExtension {
                 ],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }
@@ -59,6 +62,27 @@ impl Plugin for WebLangExtension {
 
     fn update(&mut self, _ctx: &PluginContext) -> PluginResponse {
         PluginResponse::default()
+    }
+
+    fn dap_config(&self) -> Option<DapConfig> {
+        // Node.js debugging via node --inspect protocol bridged through a DAP adapter.
+        // Requires `@vscode/js-debug` or `node-debug2` to be installed.
+        Some(DapConfig {
+            adapter_cmd: "node".to_string(),
+            adapter_args: vec![
+                "--require".to_string(),
+                "ts-node/register".to_string(),
+            ],
+            launch_config: serde_json::json!({
+                "type": "node",
+                "request": "launch",
+                "name": "Debug Node.js",
+                "program": "${file}",
+                "cwd": "${workspaceFolder}",
+                "console": "integratedTerminal",
+                "runtimeExecutable": "node"
+            }),
+        })
     }
 }
 

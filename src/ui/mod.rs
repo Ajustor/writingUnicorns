@@ -1,3 +1,4 @@
+pub mod debugger;
 pub mod layout;
 pub mod palette;
 pub mod run_panel;

@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod ffi_plugin;
 pub mod installer;
 pub mod loader;
 pub mod manifest;

@@ -6,15 +6,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crossbeam_channel::{unbounded, Receiver};
 use serde_json::Value;
 
-pub struct LspTransport {
+/// Stdio transport for the Debug Adapter Protocol.
+/// Uses the same `Content-Length: N\r\n\r\n{body}` framing as LSP.
+pub struct DapTransport {
     stdin: ChildStdin,
     pub receiver: Receiver<Value>,
-    /// Set to false by the reader thread when the server process exits.
+    /// Cleared by the reader thread when the adapter process exits.
     pub is_alive: Arc<AtomicBool>,
     _child: Child,
 }
 
-impl LspTransport {
+impl DapTransport {
     pub fn spawn(command: &str, args: &[&str], workspace: &str) -> anyhow::Result<Self> {
         let mut child = Command::new(command)
             .args(args)
@@ -35,35 +37,29 @@ impl LspTransport {
             loop {
                 let mut header = String::new();
                 match reader.read_line(&mut header) {
-                    Ok(0) | Err(_) => break, // EOF or error → server closed
+                    Ok(0) | Err(_) => break,
                     Ok(_) => {}
                 }
                 let header = header.trim();
                 if header.is_empty() {
                     continue;
                 }
-
                 let content_length: usize =
                     if let Some(s) = header.strip_prefix("Content-Length: ") {
                         s.trim().parse().unwrap_or(0)
                     } else {
                         continue;
                     };
-
-                // Skip blank line between header and body
                 let mut blank = String::new();
                 let _ = reader.read_line(&mut blank);
-
                 let mut buf = vec![0u8; content_length];
                 if reader.read_exact(&mut buf).is_err() {
                     break;
                 }
-
                 if let Ok(msg) = serde_json::from_slice::<Value>(&buf) {
                     let _ = tx.send(msg);
                 }
             }
-            // Reader thread is exiting — mark the transport as dead.
             alive_clone.store(false, Ordering::Relaxed);
         });
 

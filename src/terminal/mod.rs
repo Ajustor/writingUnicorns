@@ -347,7 +347,6 @@ fn resolve_shell() -> (String, Vec<String>) {
 // ─── Terminal ─────────────────────────────────────────────────────────────────
 
 pub struct Terminal {
-    pub input_buf: String,
     pub shell_name: String,
     performer: AnsiPerformer,
     rx: Option<Receiver<Vec<u8>>>,
@@ -356,6 +355,8 @@ pub struct Terminal {
     _child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
     /// Set to true when new output arrives — triggers a one-shot scroll to bottom.
     needs_scroll: bool,
+    /// Whether this terminal has keyboard focus.
+    focused: bool,
 }
 
 impl Terminal {
@@ -363,11 +364,10 @@ impl Terminal {
         let (rx, writer, child, shell_name) = Self::spawn_shell();
         let mut parser = Parser::new();
         let mut performer = AnsiPerformer::new();
-        for byte in "Terminal ready. Type commands below.\r\n".bytes() {
+        for byte in "Terminal ready. Click to focus, then type.\r\n".bytes() {
             parser.advance(&mut performer, byte);
         }
         Self {
-            input_buf: String::new(),
             shell_name,
             performer,
             rx,
@@ -375,6 +375,7 @@ impl Terminal {
             parser,
             _child: child,
             needs_scroll: true,
+            focused: false,
         }
     }
 
@@ -470,7 +471,9 @@ impl Terminal {
         self.needs_scroll = true;
     }
 
-    /// Renders just the terminal output and input area (no header/tab bar).
+    /// Renders the terminal output (no header/tab bar).
+    /// Keyboard input is forwarded directly to the PTY when the terminal has focus.
+    /// Click anywhere in the terminal to focus it.
     pub fn show_content(&mut self, ui: &mut egui::Ui, config: &crate::config::Config) {
         self.update();
 
@@ -488,19 +491,27 @@ impl Terminal {
         let scroll_to_bottom = self.needs_scroll;
         self.needs_scroll = false;
 
-        // Collect keyboard state before rendering closures to avoid borrow conflicts.
-        let (want_ctrl_c, want_ctrl_d, want_up, want_down) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::C) && i.modifiers.ctrl,
-                i.key_pressed(egui::Key::D) && i.modifiers.ctrl,
-                i.key_pressed(egui::Key::ArrowUp) && !i.modifiers.any(),
-                i.key_pressed(egui::Key::ArrowDown) && !i.modifiers.any(),
-            )
-        });
+        // Content width inside the frame margins (left:8 + right:8 = 16px)
+        let content_width = (ui.available_width() - 16.0).max(1.0);
+        const LINE_HEIGHT: f32 = 13.5;
 
-        let mut input_submitted = false;
-        let mut want_tab = false;
-        let mut text_edit_focused = false;
+        // Capture terminal rect before building the frame, for click detection.
+        let term_rect = ui.available_rect_before_wrap();
+
+        // Update focus state from raw pointer input (bypasses egui widget focus system).
+        let pointer_pos = ui.ctx().input(|i| i.pointer.interact_pos());
+        let any_click = ui.ctx().input(|i| i.pointer.any_click());
+        if any_click {
+            if let Some(pos) = pointer_pos {
+                if term_rect.contains(pos) {
+                    self.focused = true;
+                } else {
+                    self.focused = false;
+                }
+            }
+        }
+
+        let focused = self.focused;
 
         egui::Frame::new()
             .fill(term_bg)
@@ -511,130 +522,199 @@ impl Terminal {
                 bottom: 4,
             })
             .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    let output_height = (ui.available_height() - 32.0).max(40.0);
-                    const LINE_HEIGHT: f32 = 13.5;
+                ui.spacing_mut().item_spacing.y = 0.0;
 
-                    egui::ScrollArea::vertical()
-                        .max_height(output_height)
-                        .auto_shrink([false, false])
-                        .id_salt("term_scroll")
-                        .stick_to_bottom(scroll_to_bottom)
-                        .show(ui, |ui| {
-                            ui.style_mut().spacing.item_spacing.y = 0.0;
+                let scroll_out = egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .id_salt("term_scroll")
+                    .stick_to_bottom(scroll_to_bottom)
+                    .show(ui, |ui| {
+                        ui.style_mut().spacing.item_spacing.y = 0.0;
 
-                            // Find last non-empty row in the visible screen.
-                            let last_screen_row = self
-                                .performer
-                                .buf
-                                .rows
-                                .iter()
-                                .rposition(|row| {
-                                    row.iter()
-                                        .any(|c| c.ch != ' ' || c.fg != DEFAULT_FG || c.bold)
-                                })
-                                .map_or(0, |i| i + 1);
+                        let cursor_row = self.performer.buf.cursor_row;
+                        let cursor_col = self.performer.buf.cursor_col;
 
-                            for row in &self.performer.buf.scrollback {
-                                render_row(ui, row, LINE_HEIGHT, default_fg, term_bg);
-                            }
-                            for row in self.performer.buf.rows[..last_screen_row].iter() {
-                                render_row(ui, row, LINE_HEIGHT, default_fg, term_bg);
-                            }
-                        });
+                        // Always render at least through the cursor line so
+                        // stick_to_bottom has content to scroll to.
+                        let last_screen_row = self
+                            .performer
+                            .buf
+                            .rows
+                            .iter()
+                            .rposition(|row| {
+                                row.iter()
+                                    .any(|c| c.ch != ' ' || c.fg != DEFAULT_FG || c.bold)
+                            })
+                            .map_or(0, |i| i + 1)
+                            .max(cursor_row + 1);
 
-                    ui.add_space(4.0);
-
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("❯")
-                                .color(egui::Color32::from_rgb(35, 209, 139))
-                                .size(13.5)
-                                .monospace(),
-                        );
-                        let resp = ui.add(
-                            egui::TextEdit::singleline(&mut self.input_buf)
-                                .frame(false)
-                                .desired_width(ui.available_width())
-                                .font(egui::FontId::monospace(13.0)),
-                        );
-                        text_edit_focused = resp.has_focus();
-
-                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                            input_submitted = true;
-                            resp.request_focus();
+                        for row in &self.performer.buf.scrollback {
+                            render_row(ui, row, LINE_HEIGHT, default_fg, term_bg, content_width, None);
                         }
-
-                        if resp.has_focus() {
-                            ui.input_mut(|i| {
-                                if i.key_pressed(egui::Key::Tab) {
-                                    i.events.retain(|e| {
-                                        !matches!(
-                                            e,
-                                            egui::Event::Key {
-                                                key: egui::Key::Tab,
-                                                pressed: true,
-                                                ..
-                                            }
-                                        )
-                                    });
-                                    want_tab = true;
-                                }
-                            });
+                        for (i, row) in self.performer.buf.rows[..last_screen_row].iter().enumerate() {
+                            let cur = if i == cursor_row { Some(cursor_col) } else { None };
+                            render_row(ui, row, LINE_HEIGHT, default_fg, term_bg, content_width, cur);
                         }
                     });
-                });
+
+                // Subtle focus ring
+                if focused {
+                    ui.painter().rect_stroke(
+                        scroll_out.inner_rect,
+                        0.0,
+                        egui::Stroke::new(
+                            1.0,
+                            egui::Color32::from_rgba_unmultiplied(80, 80, 200, 70),
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                }
             });
 
-        // Process queued actions after all closures have run.
-        if input_submitted {
-            let line = self.input_buf.clone() + "\n";
-            self.send_input(&line);
-            self.input_buf.clear();
-        }
-        if want_tab {
-            self.send_input("\t");
-        }
-        if want_ctrl_c {
-            self.send_input("\x03");
-            self.input_buf.clear();
-        }
-        if want_ctrl_d {
-            self.send_input("\x04");
-        }
-        if want_up && text_edit_focused {
-            self.send_input("\x1b[A");
-        }
-        if want_down && text_edit_focused {
-            self.send_input("\x1b[B");
+        // Forward all keyboard events directly to the PTY when focused.
+        if focused {
+            let mut to_send = String::new();
+            ui.ctx().input_mut(|i| {
+                i.events.retain(|event| match event {
+                    egui::Event::Text(text) => {
+                        to_send.push_str(text);
+                        false // consumed
+                    }
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => {
+                        if modifiers.ctrl && !modifiers.alt {
+                            let seq: Option<&str> = match key {
+                                egui::Key::A => Some("\x01"),
+                                egui::Key::B => Some("\x02"),
+                                egui::Key::C => Some("\x03"),
+                                egui::Key::D => Some("\x04"),
+                                egui::Key::E => Some("\x05"),
+                                egui::Key::F => Some("\x06"),
+                                egui::Key::K => Some("\x0b"),
+                                egui::Key::L => Some("\x0c"),
+                                egui::Key::N => Some("\x1b[B"),
+                                egui::Key::P => Some("\x1b[A"),
+                                egui::Key::R => Some("\x12"),
+                                egui::Key::U => Some("\x15"),
+                                egui::Key::W => Some("\x17"),
+                                egui::Key::Z => Some("\x1a"),
+                                _ => None,
+                            };
+                            if let Some(s) = seq {
+                                to_send.push_str(s);
+                                false
+                            } else {
+                                true
+                            }
+                        } else if !modifiers.ctrl && !modifiers.alt && !modifiers.mac_cmd {
+                            let seq: Option<&str> = match key {
+                                egui::Key::Enter => Some("\r"),
+                                egui::Key::Backspace => Some("\x7f"),
+                                egui::Key::Tab => Some("\t"),
+                                egui::Key::Escape => Some("\x1b"),
+                                egui::Key::ArrowUp => Some("\x1b[A"),
+                                egui::Key::ArrowDown => Some("\x1b[B"),
+                                egui::Key::ArrowRight => Some("\x1b[C"),
+                                egui::Key::ArrowLeft => Some("\x1b[D"),
+                                egui::Key::Delete => Some("\x1b[3~"),
+                                egui::Key::Home => Some("\x1b[H"),
+                                egui::Key::End => Some("\x1b[F"),
+                                egui::Key::PageUp => Some("\x1b[5~"),
+                                egui::Key::PageDown => Some("\x1b[6~"),
+                                _ => None,
+                            };
+                            if let Some(s) = seq {
+                                to_send.push_str(s);
+                                false
+                            } else {
+                                true
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                    _ => true,
+                });
+            });
+            if !to_send.is_empty() {
+                self.send_input(&to_send);
+            }
         }
     }
 }
 
 // ─── Rendering helper ─────────────────────────────────────────────────────────
 
-/// Render one row of the screen buffer as a single egui label.
-/// Groups consecutive cells with the same fg/bold into text runs.
+/// Render one row of the screen buffer into an exact-width rect.
+/// Clips content at `clip_width` so the scroll area never grows horizontally.
+/// `cursor_col` — if Some(col), draws a cursor block at that column.
 fn render_row(
     ui: &mut egui::Ui,
     row: &[Cell],
     line_height: f32,
     default_fg: Color32,
     term_bg: Color32,
+    clip_width: f32,
+    cursor_col: Option<usize>,
 ) {
+    let font_id = egui::FontId::monospace(13.5);
+
+    // Measure char width once (monospace: all chars same width).
+    let char_w = ui.fonts(|f| f.glyph_width(&font_id, 'M'));
+
     // Find the last non-blank cell to avoid trailing whitespace allocations.
     let last = row
         .iter()
         .rposition(|c| c.ch != ' ' || c.fg != DEFAULT_FG || c.bold)
         .map_or(0, |i| i + 1);
 
+    // Allocate a fixed rect so the scroll area content width never exceeds clip_width.
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(clip_width, line_height),
+        egui::Sense::hover(),
+    );
+
+    // Draw cursor block behind the text.
+    // Use exact prefix-width measurement so the block aligns with the galley glyph positions.
+    if let Some(col) = cursor_col {
+        let prefix: String = row.iter().take(col).map(|c| c.ch).collect();
+        let cx = rect.left()
+            + if prefix.is_empty() {
+                0.0
+            } else {
+                ui.fonts(|f| {
+                    f.layout_no_wrap(prefix, font_id.clone(), egui::Color32::WHITE)
+                        .size()
+                        .x
+                })
+            };
+        let cursor_rect = egui::Rect::from_min_size(
+            egui::pos2(cx.min(rect.right() - char_w), rect.top()),
+            egui::vec2(char_w, line_height),
+        );
+        ui.painter().rect_filled(
+            cursor_rect,
+            0.0,
+            egui::Color32::from_rgba_unmultiplied(180, 180, 180, 180),
+        );
+    }
+
     if last == 0 {
-        ui.add_space(line_height);
         return;
     }
 
     let mut job = egui::text::LayoutJob::default();
-    job.wrap.max_width = f32::INFINITY;
+    // Truncate at clip_width instead of INFINITY — eliminates the horizontal scrollbar.
+    job.wrap = egui::text::TextWrapping {
+        max_width: clip_width.max(1.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: None,
+    };
 
     let mut i = 0;
     while i < last {
@@ -650,7 +730,7 @@ fn render_row(
             &text,
             0.0,
             egui::TextFormat {
-                font_id: egui::FontId::monospace(13.5),
+                font_id: font_id.clone(),
                 color,
                 background: term_bg,
                 ..Default::default()
@@ -658,5 +738,7 @@ fn render_row(
         );
         i = j;
     }
-    ui.label(job);
+
+    let galley = ui.fonts(|f| f.layout_job(job));
+    ui.painter().galley(rect.left_top(), galley, default_fg);
 }

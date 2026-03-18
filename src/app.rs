@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::config::Config;
+use crate::dap::manager::DapManager;
 use crate::editor::Editor;
 use crate::filetree::FileTree;
 use crate::git::GitStatus;
@@ -11,6 +12,7 @@ use crate::plugin::PluginContext;
 use crate::runner::RunManager;
 use crate::tabs::TabManager;
 use crate::terminal::Terminal;
+use crate::ui::debugger::DebuggerPanel;
 use crate::ui::layout::SidebarTab;
 use crate::ui::palette::CommandPalette;
 use crate::ui::run_panel::RunPanel;
@@ -61,6 +63,42 @@ pub struct WritingUnicorns {
     confirmed_close: bool,
     /// Tab id pending Ctrl+W close with unsaved warning.
     pub close_tab_id_pending: Option<usize>,
+    /// Document symbols for the outline panel.
+    pub outline_symbols: Vec<crate::lsp::client::DocumentSymbol>,
+    /// Pending LSP documentSymbol request id.
+    pub pending_symbols_id: Option<u64>,
+    /// Content version at time of last symbol request.
+    pub outline_last_version: i32,
+    /// Time of last symbol request.
+    pub outline_last_request: Option<std::time::Instant>,
+    /// Find-all-references results: (path, line, preview).
+    pub references_result: Vec<(std::path::PathBuf, u32, String)>,
+    /// Pending LSP references request id.
+    pub pending_references_id: Option<u64>,
+    /// Whether to show the references panel.
+    pub show_references: bool,
+    /// Rename dialog state.
+    pub rename_dialog_open: bool,
+    pub rename_new_name: String,
+    pub rename_pending_id: Option<u64>,
+    /// Code actions.
+    pub code_actions: Vec<crate::lsp::client::CodeAction>,
+    pub pending_code_actions_id: Option<u64>,
+    pub show_code_actions_menu: bool,
+    pub code_actions_pos: egui::Pos2,
+    pub code_actions_last_request: Option<std::time::Instant>,
+    /// Pending signature help request id.
+    pub pending_signature_id: Option<u64>,
+    /// Pending LSP formatting request id.
+    pub pending_format_id: Option<u64>,
+    // ── Auto-save ────────────────────────────────────────────────────────────
+    /// Last content_version seen — used to detect edits for auto-save.
+    pub last_edit_version_seen: i32,
+    /// When the last edit was made — drives the 2-second auto-save timer.
+    pub last_edit_instant: Option<std::time::Instant>,
+    // ── DAP Debugger ─────────────────────────────────────────────────────────
+    pub dap: DapManager,
+    pub debugger_panel: DebuggerPanel,
 }
 
 impl WritingUnicorns {
@@ -88,6 +126,19 @@ impl WritingUnicorns {
         ));
         let mut extension_registry = crate::extension::registry::ExtensionRegistry::new();
         extension_registry.load_installed();
+        // Load installed FFI language modules into the plugin manager.
+        for ext in &extension_registry.installed {
+            if let Some(lib_path) = &ext.lib_path {
+                let lsp_server = ext.manifest.capabilities.lsp_server.clone();
+                let lsp_args = ext.manifest.capabilities.lsp_args.clone();
+                match crate::extension::ffi_plugin::FfiLangPlugin::load(
+                    lib_path, lsp_server, lsp_args,
+                ) {
+                    Ok(plugin) => plugin_manager.register(Box::new(plugin)),
+                    Err(e) => eprintln!("Failed to load extension {}: {e}", ext.manifest.extension.id),
+                }
+            }
+        }
         let initial_terminal_height = config.terminal_height;
         let mut app = Self {
             config,
@@ -125,6 +176,27 @@ impl WritingUnicorns {
             show_close_warning: false,
             confirmed_close: false,
             close_tab_id_pending: None,
+            outline_symbols: vec![],
+            pending_symbols_id: None,
+            outline_last_version: -1,
+            outline_last_request: None,
+            references_result: vec![],
+            pending_references_id: None,
+            show_references: false,
+            rename_dialog_open: false,
+            rename_new_name: String::new(),
+            rename_pending_id: None,
+            code_actions: vec![],
+            pending_code_actions_id: None,
+            show_code_actions_menu: false,
+            code_actions_pos: egui::Pos2::ZERO,
+            code_actions_last_request: None,
+            pending_signature_id: None,
+            pending_format_id: None,
+            last_edit_version_seen: 0,
+            last_edit_instant: None,
+            dap: DapManager::new(),
+            debugger_panel: DebuggerPanel::new(),
         };
 
         if let Some(path) = initial_path {
@@ -218,6 +290,7 @@ impl WritingUnicorns {
                 }
             }
             self.last_lsp_content_version = 0;
+            self.editor.refresh_line_diff();
         }
     }
 
@@ -234,7 +307,12 @@ impl WritingUnicorns {
     fn ensure_lsp_for_file(&mut self, path: &std::path::Path) {
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             if let Some(workspace) = self.workspace_path.clone() {
-                self.lsp.ensure_started(ext, &workspace);
+                // Prefer the plugin manager (covers installed FFI modules), then builtins.
+                if let Some((cmd, args)) = self.plugin_manager.lsp_server_for_ext(ext) {
+                    self.lsp.ensure_started_with_cmd(ext, &cmd, &args, &workspace);
+                } else {
+                    self.lsp.ensure_started(ext, &workspace);
+                }
             }
         }
     }
@@ -253,6 +331,31 @@ impl WritingUnicorns {
     pub fn open_new_file(&mut self) {
         self.editor.set_content(String::new(), None);
         self.tab_manager.open_untitled();
+    }
+
+    /// Cycle to the next open tab (Ctrl+Tab).
+    pub fn cycle_tab_next(&mut self) {
+        let n = self.tab_manager.tabs.len();
+        if n < 2 { return; }
+        if let Some(active_id) = self.tab_manager.active_tab {
+            let pos = self.tab_manager.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+            let next_pos = (pos + 1) % n;
+            let next_id = self.tab_manager.tabs[next_pos].id;
+            self.tab_manager.active_tab = Some(next_id);
+            self.load_active_tab();
+        }
+    }
+
+    /// Cycle to the previous open tab (Ctrl+Shift+Tab).
+    pub fn cycle_tab_prev(&mut self) {
+        let n = self.tab_manager.tabs.len();
+        if n < 2 { return; }
+        if let Some(active_id) = self.tab_manager.active_tab {
+            let pos = self.tab_manager.tabs.iter().position(|t| t.id == active_id).unwrap_or(0);
+            let prev_pos = if pos == 0 { n - 1 } else { pos - 1 };
+            self.tab_manager.active_tab = Some(self.tab_manager.tabs[prev_pos].id);
+            self.load_active_tab();
+        }
     }
 
     pub fn trigger_open_folder(&mut self) -> std::sync::mpsc::Receiver<PathBuf> {
@@ -292,6 +395,7 @@ impl WritingUnicorns {
     /// Navigate to the definition of `word` via LSP (async), then file-path lookup, then workspace search.
     pub fn handle_go_to_definition(&mut self, word: &str) {
         // Strategy 0: try LSP definition (async — will navigate when the response arrives).
+        let mut lsp_sent = false;
         if let Some(path) = self.editor.current_path.clone() {
             let (row, col) = self.editor.cursor.position();
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -300,12 +404,15 @@ impl WritingUnicorns {
                         let uri = format!("file://{}", path.display());
                         self.pending_definition_id =
                             Some(client.request_definition(&uri, row as u32, col as u32));
-                        // LSP result will navigate via poll; also run regex so we don't stall.
+                        lsp_sent = true;
                     }
                 }
             }
         }
-        self.handle_go_to_definition_regex(word);
+        // Only fall back to regex when no LSP server is connected for this file type.
+        if !lsp_sent {
+            self.handle_go_to_definition_regex(word);
+        }
     }
 
     /// Regex/workspace-search-based go-to-definition (synchronous fallback).
@@ -388,6 +495,113 @@ impl WritingUnicorns {
             // Fall back to full workspace search with higher limits.
             if let Some((path, line)) = search_workspace_for_symbol(&ws, &patterns, 2000, 10) {
                 self.open_file_at_line(path, line);
+            }
+        }
+    }
+
+    /// Send a Find-All-References LSP request from the current cursor position.
+    pub fn request_find_references(&mut self) {
+        if let Some(path) = self.editor.current_path.clone() {
+            let (row, col) = self.editor.cursor.position();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if let Some(client) = self.lsp.get_mut(ext) {
+                    if client.is_connected {
+                        let uri = format!("file://{}", path.display());
+                        self.pending_references_id = Some(
+                            client.request_references(&uri, row as u32, col as u32)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Open the rename dialog with the current word under cursor.
+    pub fn start_rename(&mut self) {
+        if let Some(word) = self.editor.current_word_full_pub() {
+            self.rename_new_name = word;
+        } else {
+            self.rename_new_name = String::new();
+        }
+        self.rename_dialog_open = true;
+    }
+
+    /// Apply rename edits from LSP to files on disk.
+    pub fn apply_rename_edits(&mut self, edits: Vec<(PathBuf, Vec<(u32, u32, u32, String)>)>) {
+        for (path, file_edits) in edits {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+                // Sort edits in reverse order so positions stay valid
+                let mut sorted_edits = file_edits.clone();
+                sorted_edits.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+                for (line_num, start_col, end_col, new_text) in sorted_edits {
+                    if let Some(line) = lines.get_mut(line_num as usize) {
+                        let chars: Vec<char> = line.chars().collect();
+                        let start = (start_col as usize).min(chars.len());
+                        let end = (end_col as usize).min(chars.len());
+                        let mut new_line: String = chars[..start].iter().collect();
+                        new_line.push_str(&new_text);
+                        new_line.push_str(&chars[end..].iter().collect::<String>());
+                        *line = new_line;
+                    }
+                }
+                let new_content = lines.join("\n");
+                let _ = std::fs::write(&path, new_content);
+                // Reload if it's the current file
+                if self.editor.current_path.as_deref() == Some(&path) {
+                    if let Ok(c) = std::fs::read_to_string(&path) {
+                        let p = path.clone();
+                        self.editor.set_content(c, Some(p));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Start a DAP debug session using the language plugin for the current file.
+    pub fn start_debug_session(&mut self) {
+        let Some(path) = self.editor.current_path.clone() else { return };
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+        let Some(cfg) = self.plugin_manager.dap_config_for_ext(&ext) else { return };
+        let workspace = self.workspace_path.clone()
+            .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
+        if let Err(e) = self.dap.start_session(&cfg, &workspace, Some(&path)) {
+            self.show_terminal = true;
+            if let Some(term) = self.terminals.get_mut(self.active_terminal) {
+                term.send_input(&format!("echo 'DAP error: {e}'\n"));
+            }
+        }
+        // Switch to debugger panel.
+        self.show_sidebar = true;
+        self.sidebar_tab = SidebarTab::Debug;
+    }
+
+    /// Toggle a breakpoint at the current cursor line.
+    pub fn toggle_breakpoint_at_cursor(&mut self) {
+        let Some(path) = self.editor.current_path.clone() else { return };
+        let (row, _) = self.editor.cursor.position();
+        // Breakpoints are 1-based in DAP.
+        self.dap.toggle_breakpoint(&path, row + 1);
+    }
+
+    /// Request code actions at the cursor.
+    pub fn request_code_actions_at_cursor(&mut self) {
+        if let Some(path) = self.editor.current_path.clone() {
+            let (row, col) = self.editor.cursor.position();
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if let Some(client) = self.lsp.get_mut(ext) {
+                    if client.is_connected {
+                        let uri = format!("file://{}", path.display());
+                        let diag_messages: Vec<String> = self.editor.diagnostics.iter()
+                            .filter(|d| d.line as usize == row)
+                            .map(|d| d.message.clone())
+                            .collect();
+                        self.pending_code_actions_id = Some(
+                            client.request_code_actions(&uri, row as u32, col as u32, &diag_messages)
+                        );
+                        self.code_actions_last_request = Some(std::time::Instant::now());
+                    }
+                }
             }
         }
     }
@@ -669,6 +883,11 @@ impl eframe::App for WritingUnicorns {
             want_search,
             want_close_tab,
             want_run,
+            want_debug_f5,
+            want_breakpoint_f9,
+            want_step_over_f10,
+            want_step_in_f11,
+            want_step_out_shift_f11,
         ) = ctx.input(|i| {
             (
                 self.config.keybindings.open_folder.matches(i),
@@ -681,7 +900,18 @@ impl eframe::App for WritingUnicorns {
                 self.config.keybindings.settings.matches(i),
                 i.key_pressed(egui::Key::F) && i.modifiers.ctrl && i.modifiers.shift,
                 self.config.keybindings.close_tab.matches(i),
+                // F5 without shift = run (existing) or debug continue
+                i.key_pressed(egui::Key::F5) && !i.modifiers.shift,
+                // F5 = debug start/continue
                 i.key_pressed(egui::Key::F5),
+                // F9 = toggle breakpoint
+                i.key_pressed(egui::Key::F9),
+                // F10 = step over
+                i.key_pressed(egui::Key::F10),
+                // F11 = step in
+                i.key_pressed(egui::Key::F11) && !i.modifiers.shift,
+                // Shift+F11 = step out
+                i.key_pressed(egui::Key::F11) && i.modifiers.shift,
             )
         });
 
@@ -716,6 +946,38 @@ impl eframe::App for WritingUnicorns {
         if want_run {
             self.run_active_config();
         }
+        // ── DAP keybindings ──────────────────────────────────────────────────
+        if want_breakpoint_f9 {
+            self.toggle_breakpoint_at_cursor();
+        }
+        if want_debug_f5 {
+            if self.dap.is_paused() {
+                if let Some(tid) = self.dap.paused_thread_id() {
+                    if let Some(sess) = &mut self.dap.session {
+                        sess.continue_execution(tid);
+                    }
+                }
+            } else if !self.dap.is_active() {
+                self.start_debug_session();
+            }
+        }
+        if want_step_over_f10 {
+            if let Some(tid) = self.dap.paused_thread_id() {
+                if let Some(sess) = &mut self.dap.session { sess.next_step(tid); }
+            }
+        }
+        if want_step_in_f11 {
+            if let Some(tid) = self.dap.paused_thread_id() {
+                if let Some(sess) = &mut self.dap.session { sess.step_in(tid); }
+            }
+        }
+        if want_step_out_shift_f11 {
+            if let Some(tid) = self.dap.paused_thread_id() {
+                if let Some(sess) = &mut self.dap.session { sess.step_out(tid); }
+            }
+        }
+        // Poll the DAP session every frame.
+        self.dap.poll();
         if want_close_tab && self.close_tab_id_pending.is_none() {
             if let Some(id) = self.tab_manager.active_tab {
                 let is_modified = self
@@ -734,8 +996,22 @@ impl eframe::App for WritingUnicorns {
             }
         }
 
-        // Poll all LSP clients for incoming messages.
-        let lsp_responses = self.lsp.poll_all();
+        // Poll all LSP clients for incoming messages (also drives auto-restart).
+        let (lsp_responses, reconnected_exts) = self.lsp.poll_all();
+        // Re-open the current file on any reconnected LSP server so it receives diagnostics.
+        if !reconnected_exts.is_empty() {
+            if let Some(ref path) = self.editor.current_path.clone() {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                if reconnected_exts.contains(&ext) {
+                    let uri = format!("file://{}", path.display());
+                    let content = self.editor.buffer.to_string();
+                    let lang_id = ext.as_str();
+                    if let Some(client) = self.lsp.get_mut(&ext) {
+                        client.did_open(&uri, lang_id, &content);
+                    }
+                }
+            }
+        }
         for (_ext, msgs) in lsp_responses {
             for (id, response) in msgs {
                 if Some(id) == self.pending_hover_id {
@@ -754,6 +1030,70 @@ impl eframe::App for WritingUnicorns {
                         );
                     }
                     self.pending_completion_id = None;
+                } else if Some(id) == self.pending_symbols_id {
+                    self.outline_symbols = LspClient::parse_document_symbols(&response);
+                    self.pending_symbols_id = None;
+                } else if Some(id) == self.pending_references_id {
+                    let refs = LspClient::parse_references(&response);
+                    self.references_result = refs.into_iter().map(|(path, line)| {
+                        let preview = std::fs::read_to_string(&path).ok()
+                            .and_then(|s| s.lines().nth(line as usize).map(|l| l.trim().to_string()))
+                            .unwrap_or_default();
+                        (path, line, preview)
+                    }).collect();
+                    self.show_references = !self.references_result.is_empty();
+                    self.pending_references_id = None;
+                } else if Some(id) == self.rename_pending_id {
+                    let edits = LspClient::apply_rename(&response);
+                    if !edits.is_empty() {
+                        self.apply_rename_edits(edits);
+                    }
+                    self.rename_pending_id = None;
+                } else if Some(id) == self.pending_code_actions_id {
+                    self.code_actions = LspClient::parse_code_actions(&response);
+                    self.pending_code_actions_id = None;
+                    if !self.code_actions.is_empty() {
+                        self.show_code_actions_menu = true;
+                    }
+                } else if Some(id) == self.pending_signature_id {
+                    self.editor.signature_help_text = LspClient::parse_signature_help(&response);
+                    self.pending_signature_id = None;
+                    self.editor.signature_help_request_pending = false;
+                } else if Some(id) == self.pending_format_id {
+                    self.pending_format_id = None;
+                    let edits = LspClient::parse_text_edits(&response);
+                    if !edits.is_empty() {
+                        // Apply edits in reverse order (bottom-to-top) to preserve positions.
+                        let mut sorted = edits;
+                        sorted.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+                        self.editor.buffer.checkpoint();
+                        for (sl, sc, el, ec, new_text) in sorted {
+                            let sl = sl as usize;
+                            let sc = sc as usize;
+                            let el = el as usize;
+                            let ec = ec as usize;
+                            // Delete range then insert
+                            if sl == el {
+                                let len = ec.saturating_sub(sc);
+                                for _ in 0..len {
+                                    self.editor.buffer.delete_char(sl, sc);
+                                }
+                                for (i, ch) in new_text.chars().enumerate() {
+                                    self.editor.buffer.insert_char(sl, sc + i, ch);
+                                }
+                            } else {
+                                // Multi-line edit: replace with new_text
+                                let mut row = el;
+                                while row > sl {
+                                    self.editor.buffer.delete_line(row);
+                                    row -= 1;
+                                }
+                                self.editor.buffer.replace_line(sl, &new_text);
+                            }
+                        }
+                        self.editor.is_modified = true;
+                        self.editor.content_version = self.editor.content_version.wrapping_add(1);
+                    }
                 }
             }
         }
@@ -764,6 +1104,10 @@ impl eframe::App for WritingUnicorns {
                 let row = self.editor.hover_row;
                 let col = self.editor.hover_col;
                 self.pending_hover_id = self.lsp_hover(&path, row, col);
+                if self.pending_hover_id.is_none() {
+                    // No LSP client for this file — don't retry every frame.
+                    self.editor.hover_lsp_request_pending = false;
+                }
             }
         }
 
@@ -805,7 +1149,212 @@ impl eframe::App for WritingUnicorns {
             }
         }
 
+        // Trigger document symbol request for outline panel.
+        if let Some(path) = self.editor.current_path.clone() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                let supported = matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go");
+                if supported && self.pending_symbols_id.is_none() {
+                    let version_changed = self.editor.content_version != self.outline_last_version;
+                    let time_elapsed = self.outline_last_request
+                        .map(|t| t.elapsed() > std::time::Duration::from_secs(2))
+                        .unwrap_or(true);
+                    if version_changed || time_elapsed {
+                        if let Some(client) = self.lsp.get_mut(ext) {
+                            if client.is_connected {
+                                let uri = format!("file://{}", path.display());
+                                self.pending_symbols_id = Some(client.request_document_symbols(&uri));
+                                self.outline_last_version = self.editor.content_version;
+                                self.outline_last_request = Some(std::time::Instant::now());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Trigger LSP formatting request.
+        if self.editor.format_request_pending && self.pending_format_id.is_none() {
+            self.editor.format_request_pending = false;
+            if let Some(path) = self.editor.current_path.clone() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if let Some(client) = self.lsp.get_mut(ext) {
+                        if client.is_connected {
+                            let uri = format!("file://{}", path.display());
+                            let tab_size = self.editor.detected_indent_size as u32;
+                            let insert_spaces = self.editor.detected_indent_spaces;
+                            self.pending_format_id = Some(
+                                client.request_formatting(&uri, tab_size, insert_spaces)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Trigger signature help request from editor.
+        if self.editor.signature_help_request_pending && self.pending_signature_id.is_none() {
+            if let Some(path) = self.editor.current_path.clone() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if let Some(client) = self.lsp.get_mut(ext) {
+                        if client.is_connected {
+                            let uri = format!("file://{}", path.display());
+                            let row = self.editor.signature_help_row;
+                            let col = self.editor.signature_help_col;
+                            self.pending_signature_id = Some(
+                                client.request_signature_help(&uri, row, col)
+                            );
+                            self.editor.signature_help_request_pending = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Auto-trigger code actions when cursor line has diagnostics.
+        {
+            let (cur_row, _) = self.editor.cursor.position();
+            let has_diag = self.editor.diagnostics.iter().any(|d| d.line as usize == cur_row);
+            let should_request = has_diag
+                && self.pending_code_actions_id.is_none()
+                && self.code_actions_last_request
+                    .map(|t| t.elapsed() > std::time::Duration::from_secs(1))
+                    .unwrap_or(true);
+            if should_request {
+                self.request_code_actions_at_cursor();
+            }
+        }
+
+        // Reload blame data when path changes.
+        if self.editor.show_blame {
+            let current_path = self.editor.current_path.clone();
+            if current_path != self.editor.blame_path {
+                if let Some(ref path) = current_path {
+                    self.editor.blame_data = crate::git::blame_file(path);
+                    self.editor.blame_path = current_path.clone();
+                }
+            }
+        }
+
+        // Global shortcuts for new features.
+        let (want_find_refs, want_rename, want_code_actions, want_blame) = ctx.input(|i| (
+            i.key_pressed(egui::Key::F12) && i.modifiers.shift,
+            i.key_pressed(egui::Key::F2),
+            i.key_pressed(egui::Key::Period) && i.modifiers.ctrl,
+            i.key_pressed(egui::Key::B) && i.modifiers.ctrl && i.modifiers.alt,
+        ));
+        if want_find_refs {
+            self.request_find_references();
+        }
+        if want_rename {
+            self.start_rename();
+        }
+        if want_code_actions {
+            self.show_code_actions_menu = true;
+        }
+        if want_blame {
+            self.editor.show_blame = !self.editor.show_blame;
+            if self.editor.show_blame {
+                if let Some(ref path) = self.editor.current_path.clone() {
+                    self.editor.blame_data = crate::git::blame_file(path);
+                    self.editor.blame_path = self.editor.current_path.clone();
+                }
+            }
+        }
+
+        // Rename dialog
+        if self.rename_dialog_open {
+            let mut confirmed = false;
+            let mut cancelled = false;
+            egui::Window::new("Rename Symbol")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.label("New name:");
+                    let resp = ui.text_edit_singleline(&mut self.rename_new_name);
+                    resp.request_focus();
+                    ui.horizontal(|ui| {
+                        if ui.button("Rename").clicked()
+                            || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        {
+                            confirmed = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancelled = true;
+                        }
+                    });
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        cancelled = true;
+                    }
+                });
+            if confirmed && !self.rename_new_name.is_empty() {
+                self.rename_dialog_open = false;
+                if let Some(path) = self.editor.current_path.clone() {
+                    let (row, col) = self.editor.cursor.position();
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if let Some(client) = self.lsp.get_mut(ext) {
+                            if client.is_connected {
+                                let uri = format!("file://{}", path.display());
+                                let name = self.rename_new_name.clone();
+                                self.rename_pending_id = Some(
+                                    client.request_rename(&uri, row as u32, col as u32, &name)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            if cancelled {
+                self.rename_dialog_open = false;
+            }
+        }
+
+        // Code actions menu
+        if self.show_code_actions_menu && !self.code_actions.is_empty() {
+            let actions = self.code_actions.clone();
+            let mut close = false;
+            egui::Window::new("Code Actions")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    for action in &actions {
+                        if ui.button(&action.title).clicked() {
+                            close = true;
+                        }
+                    }
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        close = true;
+                    }
+                });
+            if close {
+                self.show_code_actions_menu = false;
+            }
+        }
+
         crate::ui::layout::render(self, ctx);
+
+        // Reload LSP + plugins when a module installation just completed.
+        if self.extensions_panel.plugins_changed {
+            self.extensions_panel.plugins_changed = false;
+            self.extension_registry.load_installed();
+            // Re-register all installed FFI language plugins.
+            for ext in &self.extension_registry.installed {
+                if let Some(lib_path) = &ext.lib_path {
+                    let lsp_server = ext.manifest.capabilities.lsp_server.clone();
+                    let lsp_args = ext.manifest.capabilities.lsp_args.clone();
+                    if let Ok(plugin) = crate::extension::ffi_plugin::FfiLangPlugin::load(
+                        lib_path, lsp_server, lsp_args,
+                    ) {
+                        self.plugin_manager.register(Box::new(plugin));
+                    }
+                }
+            }
+            // Ensure the LSP for the currently open file is started with the new plugins.
+            if let Some(path) = self.editor.current_path.clone() {
+                self.ensure_lsp_for_file(&path);
+            }
+        }
 
         // Handle Ctrl+click go-to-definition request emitted by the editor.
         if let Some(word) = self.editor.go_to_definition_request.take() {
@@ -830,8 +1379,33 @@ impl eframe::App for WritingUnicorns {
             .next_back();
 
         if self.command_palette.is_open() {
-            self.command_palette
+            let (opened_file, cmd) = self.command_palette
                 .show(ctx, &mut self.file_tree, &mut self.workspace_path);
+            if let Some(path) = opened_file {
+                self.open_file(path);
+            }
+            if let Some(cmd) = cmd {
+                use crate::ui::palette::PaletteCommand;
+                match cmd {
+                    PaletteCommand::ToggleTerminal => self.show_terminal = !self.show_terminal,
+                    PaletteCommand::ToggleSidebar  => self.show_sidebar  = !self.show_sidebar,
+                    PaletteCommand::GoToLine       => self.editor.show_goto_line = true,
+                    PaletteCommand::SaveFile       => { let _ = self.editor.save(); }
+                    PaletteCommand::NewFile        => self.open_new_file(),
+                    PaletteCommand::OpenFolder     => {
+                        self.folder_pending = Some(self.trigger_open_folder());
+                    }
+                    PaletteCommand::OpenSettings   => {
+                        self.tab_manager.open_settings();
+                        self.settings_panel.open = true;
+                    }
+                    PaletteCommand::Find           => self.editor.show_find = true,
+                    PaletteCommand::FindReplace    => {
+                        self.editor.show_find = true;
+                        self.editor.show_replace = true;
+                    }
+                }
+            }
         }
 
         self.shortcuts_help.show(ctx, &self.config.keybindings);

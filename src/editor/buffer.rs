@@ -149,6 +149,19 @@ impl Buffer {
         self.rope.slice(start..end).to_string()
     }
 
+    /// Insert `content` as a new line at `row` (existing lines shift down).
+    pub fn insert_line(&mut self, row: usize, content: &str) {
+        let total = self.rope.len_lines();
+        let insert_pos = if row >= total {
+            self.rope.len_chars()
+        } else {
+            self.rope.line_to_char(row)
+        };
+        let mut text = content.to_string();
+        text.push('\n');
+        self.rope.insert(insert_pos, &text);
+    }
+
     pub fn delete_line(&mut self, row: usize) {
         let total = self.rope.len_lines();
         if total == 0 {

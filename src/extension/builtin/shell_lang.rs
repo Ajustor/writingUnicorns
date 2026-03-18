@@ -1,3 +1,4 @@
+use crate::dap::types::DapConfig;
 use crate::editor::highlight::Token;
 use crate::extension::manifest::{Capabilities, ExtensionInfo, ExtensionManifest};
 use crate::plugin::{Plugin, PluginContext, PluginResponse};
@@ -15,10 +16,12 @@ impl ShellLangExtension {
                 author: "Writing Unicorns".to_string(),
                 repository: String::new(),
             },
+            dependencies: Default::default(),
             capabilities: Capabilities {
                 languages: vec!["sh".to_string(), "bash".to_string(), "zsh".to_string()],
                 commands: vec![],
                 themes: vec![],
+                ..Default::default()
             },
         }
     }
@@ -42,5 +45,23 @@ impl Plugin for ShellLangExtension {
 
     fn update(&mut self, _ctx: &PluginContext) -> PluginResponse {
         PluginResponse::default()
+    }
+
+    fn dap_config(&self) -> Option<DapConfig> {
+        // Requires bash-debug-adapter (install: npm install -g bash-debug)
+        Some(DapConfig {
+            adapter_cmd: "bash-debug-adapter".to_string(),
+            adapter_args: vec![],
+            launch_config: serde_json::json!({
+                "type": "bashdb",
+                "request": "launch",
+                "name": "Debug Shell Script",
+                "program": "${file}",
+                "args": [],
+                "cwd": "${workspaceFolder}",
+                "env": {},
+                "terminalKind": "integrated"
+            }),
+        })
     }
 }
