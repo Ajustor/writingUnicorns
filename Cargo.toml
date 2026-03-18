@@ -1,6 +1,6 @@
 [package]
 name = "writing-unicorns"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [[bin]]
@@ -32,7 +32,9 @@ libloading = "0.8"
 rfd = "0.15"
 egui-phosphor = "0.9"
 vte = "0.13"
-miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+miniz_oxide = { version = "0.9.1", default-features = false, features = [
+  "with-alloc",
+] }
 regex = "1"
 
 [profile.release]
