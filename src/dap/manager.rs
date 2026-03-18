@@ -5,6 +5,7 @@ use super::client::DapClient;
 use super::types::{DapConfig, DebugSessionState, StackFrame, Variable};
 
 /// Manages the active debug session and breakpoint storage.
+#[derive(Default)]
 pub struct DapManager {
     pub session: Option<DapClient>,
     /// Breakpoints per file: file path → set of 1-based line numbers.
@@ -15,11 +16,7 @@ pub struct DapManager {
 
 impl DapManager {
     pub fn new() -> Self {
-        Self {
-            session: None,
-            breakpoints: HashMap::new(),
-            just_paused: false,
-        }
+        Self::default()
     }
 
     /// Toggle a breakpoint at the given file/line. Returns the new set for this file.

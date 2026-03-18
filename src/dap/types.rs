@@ -44,17 +44,12 @@ pub struct Variable {
 }
 
 /// Lifecycle state of the active debug session.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum DebugSessionState {
+    #[default]
     Idle,
     Launching,
     Running,
     Paused { thread_id: i64 },
     Terminated,
-}
-
-impl Default for DebugSessionState {
-    fn default() -> Self {
-        Self::Idle
-    }
 }

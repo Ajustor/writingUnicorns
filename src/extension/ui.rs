@@ -56,20 +56,13 @@ impl ExtensionsPanel {
         let finished_ids: Vec<String> = self.update_jobs.iter()
             .filter_map(|(id, rx)| {
                 if let Ok(status) = rx.try_recv() {
-                    Some((id.clone(), status))
-                } else {
-                    None
+                    self.update_statuses.insert(id.clone(), status.clone());
+                    if matches!(status, InstallStatus::Done | InstallStatus::Failed(_)) {
+                        return Some(id.clone());
+                    }
                 }
+                None
             })
-            .map(|(id, status)| {
-                self.update_statuses.insert(id.clone(), status.clone());
-                if matches!(status, InstallStatus::Done | InstallStatus::Failed(_)) {
-                    Some(id)
-                } else {
-                    None
-                }
-            })
-            .flatten()
             .collect();
         for id in &finished_ids {
             self.update_jobs.remove(id);
@@ -100,10 +93,10 @@ impl ExtensionsPanel {
         }
 
         // Poll workspace install job
-        if self.workspace_job.is_some() {
+        if let Some(workspace_rx) = &self.workspace_job {
             let mut finished = false;
             let mut reload = false;
-            while let Ok(status) = self.workspace_job.as_ref().unwrap().try_recv() {
+            while let Ok(status) = workspace_rx.try_recv() {
                 let msg = match &status {
                     WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
                     WorkspaceStatus::Installing { current, done, total } => {
@@ -485,6 +478,7 @@ impl ExtensionsPanel {
 
             // ── INSTALL FROM WORKSPACE ────────────────────────────────────────
             ui.collapsing("⚙ BUILD FROM SOURCES", |ui| {
+                ui.set_max_width(ui.available_width());
                 ui.label(
                     egui::RichText::new(
                         "Point to a Cargo workspace that contains modules with manifest.toml.\n\
@@ -495,12 +489,13 @@ impl ExtensionsPanel {
                 );
                 ui.add_space(4.0);
 
+                let ws_width = ui.available_width();
                 ui.horizontal(|ui| {
                     ui.label("Workspace:");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.workspace_path)
                             .hint_text("/path/to/modules")
-                            .desired_width(ui.available_width() - 64.0),
+                            .desired_width((ws_width - 90.0).max(40.0)),
                     );
                     if ui.button("Browse…").clicked() {
                         if let Some(folder) = rfd::FileDialog::new().pick_folder() {

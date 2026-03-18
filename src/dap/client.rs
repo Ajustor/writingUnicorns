@@ -345,7 +345,7 @@ impl DapClient {
     /// Substitute `${file}` in the launch config with the given path.
     pub fn set_file_variable(&mut self, path: &Path) {
         let s = self.launch_config.to_string();
-        let s = s.replace("${file}", &path.to_string_lossy().to_string());
+        let s = s.replace("${file}", path.to_string_lossy().as_ref());
         if let Ok(v) = serde_json::from_str::<Value>(&s) {
             self.launch_config = v;
         }

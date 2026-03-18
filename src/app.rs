@@ -527,6 +527,7 @@ impl WritingUnicorns {
     }
 
     /// Apply rename edits from LSP to files on disk.
+    #[allow(clippy::type_complexity)]
     pub fn apply_rename_edits(&mut self, edits: Vec<(PathBuf, Vec<(u32, u32, u32, String)>)>) {
         for (path, file_edits) in edits {
             if let Ok(content) = std::fs::read_to_string(&path) {

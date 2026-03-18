@@ -71,6 +71,7 @@ impl LspManager {
     /// Also drives crash detection + auto-restart for disconnected clients.
     /// Returns `(responses, reconnected_exts)` where `reconnected_exts` is the
     /// list of file extensions whose LSP server just reconnected this frame.
+    #[allow(clippy::type_complexity)]
     pub fn poll_all(&mut self) -> (HashMap<String, Vec<(u64, Value)>>, Vec<String>) {
         let mut results = HashMap::new();
         let mut reconnected = Vec::new();

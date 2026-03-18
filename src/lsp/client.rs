@@ -548,6 +548,7 @@ impl LspClient {
 
     /// Parse a rename response into a list of (file_path, edits).
     /// Each edit is (line, start_col, end_col, new_text).
+    #[allow(clippy::type_complexity)]
     pub fn apply_rename(response: &Value) -> Vec<(std::path::PathBuf, Vec<(u32, u32, u32, String)>)> {
         let result = match response.get("result") {
             Some(r) => r,

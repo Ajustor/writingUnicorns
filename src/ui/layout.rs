@@ -853,8 +853,7 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                 {
                     let (cur_row, _) = app.editor.cursor.position();
                     app.editor.current_symbol = app.outline_symbols.iter()
-                        .filter(|s| s.line as usize <= cur_row)
-                        .last()
+                        .rfind(|s| s.line as usize <= cur_row)
                         .map(|s| s.name.clone());
                 }
 
@@ -908,7 +907,7 @@ fn welcome_screen(ui: &mut egui::Ui) {
 }
 
 /// Find a free path like `parent/base`, `parent/base1`, `parent/base2`, …
-fn find_free_path(parent: &std::path::Path, base: &str, is_dir: bool) -> std::path::PathBuf {
+fn find_free_path(parent: &std::path::Path, base: &str, _is_dir: bool) -> std::path::PathBuf {
     let candidate = parent.join(base);
     if !candidate.exists() {
         return candidate;

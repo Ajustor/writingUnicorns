@@ -168,7 +168,15 @@ impl TabManager {
         }
 
         if let Some(id) = to_close {
+            let was_active = self.active_tab == Some(id);
             self.close(id);
+            // If the active tab was closed, load the new active tab's file
+            if was_active && to_open.is_none() {
+                to_open = self
+                    .active_tab
+                    .and_then(|new_id| self.tabs.iter().find(|t| t.id == new_id))
+                    .map(|t| t.path.clone());
+            }
         }
         to_open
     }
