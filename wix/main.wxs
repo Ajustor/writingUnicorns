@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v3 installer manifest for Writing Unicorns.
+
+  Build requirements:
+    - WiX Toolset v3 (candle.exe / light.exe)
+    - assets\icon.ico  (generate with scripts\New-Icon.ps1)
+    - target\release\writing-unicorns.exe
+
+  Build commands (from the project root):
+    candle.exe -arch x64 -out wix\main.wixobj wix\main.wxs
+    light.exe  -ext WixUIExtension -out writing-unicorns-setup.msi wix\main.wixobj
+
+  Or via cargo-wix:
+    cargo wix --no-build --nocapture
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="Writing Unicorns"
+           Language="1033"
+           Version="0.2.0"
+           Manufacturer="Writing Unicorns"
+           UpgradeCode="{B7E3F4A2-9C5D-4F8B-A1E3-D5C7B9F2E4A6}">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Writing Unicorns — lightweight IDE"
+             Comments="Writing Unicorns installer" />
+
+    <!-- Prevent downgrade -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Writing Unicorns is already installed." />
+
+    <!-- Embed the cabinet into the MSI -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Application icon (shown in Add/Remove Programs) -->
+    <Icon Id="AppIcon" SourceFile="assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK"    Value="https://github.com/user/writingUnicorns" />
+
+    <!-- Minimal install UI: progress bar + finish -->
+    <UIRef Id="WixUI_Minimal" />
+    <!-- Remove the mandatory license dialog by supplying a blank RTF -->
+    <WixVariable Id="WixUILicenseRtf" Value="wix\License.rtf" />
+
+    <!-- ── Directory layout ─────────────────────────────────────────────── -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Writing Unicorns" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Writing Unicorns" />
+      </Directory>
+      <Directory Id="DesktopFolder" Name="Desktop" />
+    </Directory>
+
+    <!-- ── Features ─────────────────────────────────────────────────────── -->
+    <Feature Id="ProductFeature" Title="Writing Unicorns" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="ProductShortcuts" />
+    </Feature>
+
+    <!-- ── Components ───────────────────────────────────────────────────── -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="*">
+        <File Id="MainExecutable"
+              Name="writing-unicorns.exe"
+              Source="target\release\writing-unicorns.exe"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="ProductShortcuts">
+      <!-- Start Menu shortcut -->
+      <Component Id="StartMenuShortcut"
+                 Directory="ApplicationProgramsFolder"
+                 Guid="*">
+        <Shortcut Id="StartMenuLink"
+                  Name="Writing Unicorns"
+                  Description="Writing Unicorns — lightweight IDE"
+                  Target="[INSTALLFOLDER]writing-unicorns.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder"
+                      Directory="ApplicationProgramsFolder"
+                      On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\WritingUnicorns"
+                       Name="StartMenu"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- Desktop shortcut -->
+      <Component Id="DesktopShortcut"
+                 Directory="DesktopFolder"
+                 Guid="*">
+        <Shortcut Id="DesktopLink"
+                  Name="Writing Unicorns"
+                  Description="Writing Unicorns — lightweight IDE"
+                  Target="[INSTALLFOLDER]writing-unicorns.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\WritingUnicorns"
+                       Name="Desktop"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+  </Product>
+</Wix>

@@ -11,10 +11,12 @@ fn write_source(dest_dir: &std::path::Path, source: &ExtensionSource) {
 
 // ── Workspace installer ───────────────────────────────────────────────────────
 
-/// Status events emitted by `install_from_workspace`.
+/// Status events emitted by `install_from_workspace` / `install_group_from_git`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorkspaceStatus {
     Idle,
+    /// Cloning a git repository.
+    Cloning,
     /// Running `cargo build --release` on the whole workspace.
     Building,
     /// Copying one module into the extensions directory.
@@ -52,168 +54,317 @@ pub fn install_from_workspace(
 ) -> mpsc::Receiver<WorkspaceStatus> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        // 1. Parse workspace Cargo.toml
-        let cargo_toml_path = workspace_path.join("Cargo.toml");
-        let cargo_toml_str = match std::fs::read_to_string(&cargo_toml_path) {
-            Ok(s) => s,
+        workspace_install_inner(workspace_path, extensions_dir, &tx);
+    });
+    rx
+}
+
+/// Clone a git repository and install all workspace members that have a
+/// `manifest.toml`. If the repo is a single extension (no `[workspace]`
+/// in Cargo.toml), it is installed as a single module.
+pub fn install_group_from_git(
+    repo_url: String,
+    extensions_dir: PathBuf,
+) -> mpsc::Receiver<WorkspaceStatus> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        // 1. Clone
+        let _ = tx.send(WorkspaceStatus::Cloning);
+        let tmp_dir = match tempdir_for_clone(&repo_url) {
+            Ok(d) => d,
             Err(e) => {
-                let _ = tx.send(WorkspaceStatus::Failed(format!(
-                    "Cannot read Cargo.toml: {e}"
-                )));
+                let _ = tx.send(WorkspaceStatus::Failed(format!("Clone failed: {e}")));
                 return;
             }
         };
-        let members = match parse_workspace_members(&cargo_toml_str) {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = tx.send(WorkspaceStatus::Failed(format!("Invalid workspace: {e}")));
-                return;
-            }
-        };
-
-        // 2. Keep only members that have a manifest.toml
-        let modules: Vec<String> = members
-            .into_iter()
-            .filter(|m| workspace_path.join(m).join("manifest.toml").exists())
-            .collect();
-
-        if modules.is_empty() {
-            let _ = tx.send(WorkspaceStatus::Failed(
-                "No modules with manifest.toml found in this workspace.".to_string(),
-            ));
+        if let Err(e) = git2::Repository::clone(&repo_url, &tmp_dir) {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Clone failed: {e}")));
             return;
         }
 
-        // 3. Build the whole workspace once
-        let _ = tx.send(WorkspaceStatus::Building);
-        let build_out = std::process::Command::new("cargo")
-            .args(["build", "--release"])
-            .current_dir(&workspace_path)
-            .output();
-
-        match build_out {
-            Ok(out) if out.status.success() => {}
-            Ok(out) => {
-                let err: String = String::from_utf8_lossy(&out.stderr)
-                    .chars()
-                    .take(400)
-                    .collect();
-                let _ = tx.send(WorkspaceStatus::Failed(format!("Build failed:\n{err}")));
-                return;
-            }
+        // 2. Read Cargo.toml and detect workspace vs single extension
+        let cargo_toml_path = tmp_dir.join("Cargo.toml");
+        let cargo_toml_str = match std::fs::read_to_string(&cargo_toml_path) {
+            Ok(s) => s,
             Err(e) => {
-                let _ = tx.send(WorkspaceStatus::Failed(format!("Cannot run cargo: {e}")));
+                let _ = tx.send(WorkspaceStatus::Failed(format!("No Cargo.toml: {e}")));
                 return;
             }
+        };
+        let value: toml::Value = match toml::from_str(&cargo_toml_str) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tx.send(WorkspaceStatus::Failed(format!("Invalid Cargo.toml: {e}")));
+                return;
+            }
+        };
+
+        if value.get("workspace").is_some() {
+            // Multi-module workspace
+            workspace_install_inner(tmp_dir, extensions_dir, &tx);
+        } else {
+            // Single extension — install it and report as 1/1
+            single_git_install_inner(&tmp_dir, &extensions_dir, &repo_url, &tx);
         }
-
-        // 4. Install each module
-        let total = modules.len();
-        let release_dir = workspace_path.join("target").join("release");
-        let mut installed = 0;
-
-        for (i, member) in modules.iter().enumerate() {
-            let _ = tx.send(WorkspaceStatus::Installing {
-                current: member.clone(),
-                done: i,
-                total,
-            });
-
-            let member_path = workspace_path.join(member);
-            let manifest_path = member_path.join("manifest.toml");
-
-            // Read manifest
-            let manifest_str = match std::fs::read_to_string(&manifest_path) {
-                Ok(s) => s,
-                Err(e) => {
-                    let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                        name: member.clone(),
-                        reason: format!("manifest.toml unreadable: {e}"),
-                    });
-                    continue;
-                }
-            };
-            let manifest: super::manifest::ExtensionManifest = match toml::from_str(&manifest_str) {
-                Ok(m) => m,
-                Err(e) => {
-                    let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                        name: member.clone(),
-                        reason: format!("Invalid manifest: {e}"),
-                    });
-                    continue;
-                }
-            };
-
-            // Find the compiled library in the shared workspace target/release/
-            let lib_name = member.replace('-', "_");
-            let lib_path = match find_lib_in_release_dir(&release_dir, &lib_name) {
-                Some(p) => p,
-                None => {
-                    let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                        name: member.clone(),
-                        reason: format!("lib{lib_name}.so not found in target/release"),
-                    });
-                    continue;
-                }
-            };
-
-            // Copy lib + manifest to extensions dir
-            let dest_dir = extensions_dir.join(&manifest.extension.id);
-            if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-                let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                    name: member.clone(),
-                    reason: format!("mkdir: {e}"),
-                });
-                continue;
-            }
-            if let Err(e) = std::fs::copy(
-                &lib_path,
-                dest_dir.join(lib_path.file_name().unwrap_or_default()),
-            ) {
-                let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                    name: member.clone(),
-                    reason: format!("Copy library: {e}"),
-                });
-                continue;
-            }
-            if let Err(e) = std::fs::copy(&manifest_path, dest_dir.join("manifest.toml")) {
-                let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                    name: member.clone(),
-                    reason: format!("Copy manifest: {e}"),
-                });
-                continue;
-            }
-            write_source(
-                &dest_dir,
-                &ExtensionSource {
-                    kind: SourceKind::Workspace,
-                    path: Some(workspace_path.to_string_lossy().to_string()),
-                    member: Some(member.clone()),
-                    url: None,
-                },
-            );
-
-            // Install external dependencies declared in the manifest.
-            let member_name = member.clone();
-            let dep_errors = install_deps(&manifest.dependencies, |step| {
-                let _ = tx.send(WorkspaceStatus::InstallingDep {
-                    module: member_name.clone(),
-                    step,
-                });
-            });
-            for err in dep_errors {
-                let _ = tx.send(WorkspaceStatus::ModuleFailed {
-                    name: member.clone(),
-                    reason: format!("dependency error: {err}"),
-                });
-            }
-
-            installed += 1;
-        }
-
-        let _ = tx.send(WorkspaceStatus::Done { installed, total });
     });
     rx
+}
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+/// Core workspace install logic shared by `install_from_workspace` and
+/// `install_group_from_git`.
+fn workspace_install_inner(
+    workspace_path: PathBuf,
+    extensions_dir: PathBuf,
+    tx: &mpsc::Sender<WorkspaceStatus>,
+) {
+    // 1. Parse workspace Cargo.toml
+    let cargo_toml_path = workspace_path.join("Cargo.toml");
+    let cargo_toml_str = match std::fs::read_to_string(&cargo_toml_path) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!(
+                "Cannot read Cargo.toml: {e}"
+            )));
+            return;
+        }
+    };
+    let members = match parse_workspace_members(&cargo_toml_str) {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Invalid workspace: {e}")));
+            return;
+        }
+    };
+
+    // 2. Keep only members that have a manifest.toml
+    let modules: Vec<String> = members
+        .into_iter()
+        .filter(|m| workspace_path.join(m).join("manifest.toml").exists())
+        .collect();
+
+    if modules.is_empty() {
+        let _ = tx.send(WorkspaceStatus::Failed(
+            "No modules with manifest.toml found in this workspace.".to_string(),
+        ));
+        return;
+    }
+
+    // 3. Build the whole workspace once
+    let _ = tx.send(WorkspaceStatus::Building);
+    let build_out = std::process::Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(&workspace_path)
+        .output();
+
+    match build_out {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => {
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(400)
+                .collect();
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Build failed:\n{err}")));
+            return;
+        }
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Cannot run cargo: {e}")));
+            return;
+        }
+    }
+
+    // 4. Install each module
+    let total = modules.len();
+    let release_dir = workspace_path.join("target").join("release");
+    let mut installed = 0;
+
+    for (i, member) in modules.iter().enumerate() {
+        let _ = tx.send(WorkspaceStatus::Installing {
+            current: member.clone(),
+            done: i,
+            total,
+        });
+
+        let member_path = workspace_path.join(member);
+        let manifest_path = member_path.join("manifest.toml");
+
+        // Read manifest
+        let manifest_str = match std::fs::read_to_string(&manifest_path) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                    name: member.clone(),
+                    reason: format!("manifest.toml unreadable: {e}"),
+                });
+                continue;
+            }
+        };
+        let manifest: super::manifest::ExtensionManifest = match toml::from_str(&manifest_str) {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                    name: member.clone(),
+                    reason: format!("Invalid manifest: {e}"),
+                });
+                continue;
+            }
+        };
+
+        // Find the compiled library in the shared workspace target/release/
+        let lib_name = member.replace('-', "_");
+        let lib_path = match find_lib_in_release_dir(&release_dir, &lib_name) {
+            Some(p) => p,
+            None => {
+                let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                    name: member.clone(),
+                    reason: format!("lib{lib_name}.so not found in target/release"),
+                });
+                continue;
+            }
+        };
+
+        // Copy lib + manifest to extensions dir
+        let dest_dir = extensions_dir.join(&manifest.extension.id);
+        if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+            let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                name: member.clone(),
+                reason: format!("mkdir: {e}"),
+            });
+            continue;
+        }
+        if let Err(e) = std::fs::copy(
+            &lib_path,
+            dest_dir.join(lib_path.file_name().unwrap_or_default()),
+        ) {
+            let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                name: member.clone(),
+                reason: format!("Copy library: {e}"),
+            });
+            continue;
+        }
+        if let Err(e) = std::fs::copy(&manifest_path, dest_dir.join("manifest.toml")) {
+            let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                name: member.clone(),
+                reason: format!("Copy manifest: {e}"),
+            });
+            continue;
+        }
+        write_source(
+            &dest_dir,
+            &ExtensionSource {
+                kind: SourceKind::Workspace,
+                path: Some(workspace_path.to_string_lossy().to_string()),
+                member: Some(member.clone()),
+                url: None,
+            },
+        );
+
+        // Install external dependencies declared in the manifest.
+        let member_name = member.clone();
+        let dep_errors = install_deps(&manifest.dependencies, |step| {
+            let _ = tx.send(WorkspaceStatus::InstallingDep {
+                module: member_name.clone(),
+                step,
+            });
+        });
+        for err in dep_errors {
+            let _ = tx.send(WorkspaceStatus::ModuleFailed {
+                name: member.clone(),
+                reason: format!("dependency error: {err}"),
+            });
+        }
+
+        installed += 1;
+    }
+
+    let _ = tx.send(WorkspaceStatus::Done { installed, total });
+}
+
+/// Install a single-extension git clone. Reports as 1-of-1 using
+/// `WorkspaceStatus` so the git-group UI can display it uniformly.
+fn single_git_install_inner(
+    dir: &std::path::Path,
+    extensions_dir: &std::path::Path,
+    repo_url: &str,
+    tx: &mpsc::Sender<WorkspaceStatus>,
+) {
+    let _ = tx.send(WorkspaceStatus::Building);
+
+    let manifest_path = dir.join("manifest.toml");
+    let manifest_str = match std::fs::read_to_string(&manifest_path) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("No manifest.toml: {e}")));
+            return;
+        }
+    };
+    let manifest: super::manifest::ExtensionManifest = match toml::from_str(&manifest_str) {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Invalid manifest: {e}")));
+            return;
+        }
+    };
+
+    let build_result = std::process::Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(dir)
+        .output();
+    match build_result {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => {
+            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(400).collect();
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Build failed:\n{err}")));
+            return;
+        }
+        Err(e) => {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Cannot run cargo: {e}")));
+            return;
+        }
+    }
+
+    let name = manifest.extension.name.clone();
+    let _ = tx.send(WorkspaceStatus::Installing {
+        current: name.clone(),
+        done: 0,
+        total: 1,
+    });
+
+    let ext_id = &manifest.extension.id;
+    let dest = extensions_dir.join(ext_id);
+    if let Err(e) = std::fs::create_dir_all(&dest) {
+        let _ = tx.send(WorkspaceStatus::Failed(format!("mkdir: {e}")));
+        return;
+    }
+    if let Err(e) = std::fs::copy(&manifest_path, dest.join("manifest.toml")) {
+        let _ = tx.send(WorkspaceStatus::Failed(format!("Copy manifest: {e}")));
+        return;
+    }
+    let release_dir = dir.join("target").join("release");
+    if let Some(lib_file) = find_lib_file(&release_dir) {
+        if let Err(e) = std::fs::copy(&lib_file, dest.join(lib_file.file_name().unwrap_or_default())) {
+            let _ = tx.send(WorkspaceStatus::Failed(format!("Copy lib: {e}")));
+            return;
+        }
+    }
+    write_source(
+        &dest,
+        &ExtensionSource {
+            kind: SourceKind::Git,
+            url: Some(repo_url.to_string()),
+            path: None,
+            member: None,
+        },
+    );
+    let module_name = name.clone();
+    install_deps(&manifest.dependencies, |step| {
+        let _ = tx.send(WorkspaceStatus::InstallingDep {
+            module: module_name.clone(),
+            step,
+        });
+    });
+    let _ = tx.send(WorkspaceStatus::Done { installed: 1, total: 1 });
 }
 
 /// Parse `[workspace].members` from a Cargo.toml string.

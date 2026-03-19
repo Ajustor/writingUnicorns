@@ -12,11 +12,16 @@ pub struct ExtensionsPanel {
     pub generate_name: String,
     pub generate_path: String,
     pub template_message: Option<Result<String, String>>,
-    // Workspace installer
+    // Workspace installer (local)
     pub workspace_path: String,
     pub workspace_job: Option<std::sync::mpsc::Receiver<WorkspaceStatus>>,
     pub workspace_status: WorkspaceStatus,
     pub workspace_log: Vec<String>,
+    // Group installer from git
+    pub git_group_url: String,
+    pub git_group_job: Option<std::sync::mpsc::Receiver<WorkspaceStatus>>,
+    pub git_group_status: WorkspaceStatus,
+    pub git_group_log: Vec<String>,
     // Update jobs: extension_id → receiver
     pub update_jobs: std::collections::HashMap<String, std::sync::mpsc::Receiver<InstallStatus>>,
     pub update_statuses: std::collections::HashMap<String, InstallStatus>,
@@ -45,6 +50,10 @@ impl ExtensionsPanel {
             workspace_job: None,
             workspace_status: WorkspaceStatus::Idle,
             workspace_log: Vec::new(),
+            git_group_url: String::new(),
+            git_group_job: None,
+            git_group_status: WorkspaceStatus::Idle,
+            git_group_log: Vec::new(),
             update_jobs: std::collections::HashMap::new(),
             update_statuses: std::collections::HashMap::new(),
             plugins_changed: false,
@@ -94,32 +103,12 @@ impl ExtensionsPanel {
             }
         }
 
-        // Poll workspace install job
+        // Poll workspace install job (local sources)
         if let Some(workspace_rx) = &self.workspace_job {
             let mut finished = false;
             let mut reload = false;
             while let Ok(status) = workspace_rx.try_recv() {
-                let msg = match &status {
-                    WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
-                    WorkspaceStatus::Installing {
-                        current,
-                        done,
-                        total,
-                    } => {
-                        format!("📦 [{}/{total}] Installing {current}…", done + 1)
-                    }
-                    WorkspaceStatus::InstallingDep { module, step } => {
-                        format!("  ↳ [{module}] {step}")
-                    }
-                    WorkspaceStatus::ModuleFailed { name, reason } => {
-                        format!("⚠ {name}: {reason}")
-                    }
-                    WorkspaceStatus::Done { installed, total } => {
-                        format!("✓ Done — {installed}/{total} modules installed")
-                    }
-                    WorkspaceStatus::Failed(e) => format!("✗ {e}"),
-                    WorkspaceStatus::Idle => String::new(),
-                };
+                let msg = workspace_status_to_log(&status);
                 if !msg.is_empty() {
                     self.workspace_log.push(msg);
                 }
@@ -134,6 +123,33 @@ impl ExtensionsPanel {
             }
             if finished {
                 self.workspace_job = None;
+                if reload {
+                    registry.load_installed();
+                    self.plugins_changed = true;
+                }
+            }
+        }
+
+        // Poll git group install job
+        if let Some(rx) = &self.git_group_job {
+            let mut finished = false;
+            let mut reload = false;
+            while let Ok(status) = rx.try_recv() {
+                let msg = workspace_status_to_log(&status);
+                if !msg.is_empty() {
+                    self.git_group_log.push(msg);
+                }
+                if matches!(
+                    &status,
+                    WorkspaceStatus::Done { .. } | WorkspaceStatus::Failed(_)
+                ) {
+                    finished = true;
+                    reload = matches!(&status, WorkspaceStatus::Done { .. });
+                }
+                self.git_group_status = status;
+            }
+            if finished {
+                self.git_group_job = None;
                 if reload {
                     registry.load_installed();
                     self.plugins_changed = true;
@@ -550,43 +566,67 @@ impl ExtensionsPanel {
                 // Log output
                 if !self.workspace_log.is_empty() {
                     ui.add_space(4.0);
-                    // Capture the sidebar width BEFORE entering the Frame so we can
-                    // clamp label widths inside — prevents the sidebar from expanding.
                     let log_width = ui.available_width();
-                    let log_bg = egui::Color32::from_rgb(18, 18, 18);
-                    egui::Frame::new()
-                        .fill(log_bg)
-                        .inner_margin(egui::Margin::same(6))
-                        .show(ui, |ui| {
-                            egui::ScrollArea::vertical()
-                                .max_height(120.0)
-                                .auto_shrink([false, false])
-                                .stick_to_bottom(true)
-                                .id_salt("ws_log_scroll")
-                                .show(ui, |ui| {
-                                    // Hard-cap content width so labels never widen the sidebar.
-                                    ui.set_max_width((log_width - 12.0).max(40.0));
-                                    ui.style_mut().spacing.item_spacing.y = 2.0;
-                                    for line in &self.workspace_log {
-                                        let color = if line.starts_with('✓') || line.contains("Done") {
-                                            egui::Color32::from_rgb(100, 200, 100)
-                                        } else if line.starts_with('✗') || line.starts_with('⚠') {
-                                            egui::Color32::from_rgb(240, 120, 80)
-                                        } else {
-                                            egui::Color32::from_gray(180)
-                                        };
-                                        ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(line)
-                                                    .size(11.0)
-                                                    .color(color)
-                                                    .monospace(),
-                                            )
-                                            .wrap(),
-                                        );
-                                    }
-                                });
-                        });
+                    show_log_area(ui, &self.workspace_log, log_width, "ws_log_scroll");
+                }
+            });
+
+            ui.add_space(8.0);
+
+            // ── INSTALL GROUP FROM GIT ────────────────────────────────────────
+            ui.collapsing("📦 INSTALL GROUP FROM GIT", |ui| {
+                ui.set_max_width(ui.available_width());
+                ui.label(
+                    egui::RichText::new(
+                        "Clone a git repository containing a Cargo workspace of modules.\n\
+                         Writing Unicorns will build and install every member that has a manifest.toml.\n\
+                         Single-extension repositories are also supported.",
+                    )
+                    .size(11.0)
+                    .color(egui::Color32::GRAY),
+                );
+                ui.add_space(4.0);
+
+                let section_width = ui.available_width();
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.git_group_url)
+                            .hint_text("https://github.com/user/my-modules-workspace")
+                            .desired_width((section_width - 110.0).max(40.0)),
+                    );
+                    let is_running = self.git_group_job.is_some();
+                    let can_run = !is_running && !self.git_group_url.is_empty();
+                    if ui
+                        .add_enabled(
+                            can_run,
+                            egui::Button::new(
+                                egui::RichText::new("Install All").color(egui::Color32::WHITE),
+                            )
+                            .fill(egui::Color32::from_rgb(0, 120, 212)),
+                        )
+                        .clicked()
+                    {
+                        self.git_group_log.clear();
+                        self.git_group_status = WorkspaceStatus::Cloning;
+                        let rx = super::installer::install_group_from_git(
+                            self.git_group_url.clone(),
+                            registry.extensions_dir.clone(),
+                        );
+                        self.git_group_job = Some(rx);
+                    }
+                    if is_running {
+                        ui.spinner();
+                    }
+                    if !self.git_group_log.is_empty() && ui.small_button("Clear").clicked() {
+                        self.git_group_log.clear();
+                        self.git_group_status = WorkspaceStatus::Idle;
+                    }
+                });
+
+                if !self.git_group_log.is_empty() {
+                    ui.add_space(4.0);
+                    let log_width = ui.available_width();
+                    show_log_area(ui, &self.git_group_log, log_width, "git_group_log_scroll");
                 }
             });
 
@@ -693,4 +733,66 @@ impl Default for ExtensionsPanel {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+fn workspace_status_to_log(status: &WorkspaceStatus) -> String {
+    match status {
+        WorkspaceStatus::Cloning => "🔄 Cloning repository…".to_string(),
+        WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
+        WorkspaceStatus::Installing { current, done, total } => {
+            format!("📦 [{}/{total}] Installing {current}…", done + 1)
+        }
+        WorkspaceStatus::InstallingDep { module, step } => {
+            format!("  ↳ [{module}] {step}")
+        }
+        WorkspaceStatus::ModuleFailed { name, reason } => {
+            format!("⚠ {name}: {reason}")
+        }
+        WorkspaceStatus::Done { installed, total } => {
+            format!("✓ Done — {installed}/{total} modules installed")
+        }
+        WorkspaceStatus::Failed(e) => format!("✗ {e}"),
+        WorkspaceStatus::Idle => String::new(),
+    }
+}
+
+/// Render the coloured log area used by both workspace and git-group installers.
+/// `log_width` must be captured from `ui.available_width()` *before* entering
+/// the frame so the frame cannot cause the sidebar to grow.
+fn show_log_area(ui: &mut egui::Ui, lines: &[String], log_width: f32, id: &str) {
+    let log_bg = egui::Color32::from_rgb(18, 18, 18);
+    egui::Frame::new()
+        .fill(log_bg)
+        .inner_margin(egui::Margin::same(6))
+        .show(ui, |ui| {
+            // Constrain the frame itself so it never pushes the sidebar wider.
+            ui.set_max_width(log_width);
+            egui::ScrollArea::vertical()
+                .max_height(120.0)
+                // Allow horizontal shrinking so long lines don't expand the panel.
+                .auto_shrink([true, false])
+                .stick_to_bottom(true)
+                .id_salt(id)
+                .show(ui, |ui| {
+                    ui.set_max_width((log_width - 12.0).max(40.0));
+                    ui.style_mut().spacing.item_spacing.y = 2.0;
+                    for line in lines {
+                        let color = if line.starts_with('✓') || line.contains("Done") {
+                            egui::Color32::from_rgb(100, 200, 100)
+                        } else if line.starts_with('✗') || line.starts_with('⚠') {
+                            egui::Color32::from_rgb(240, 120, 80)
+                        } else {
+                            egui::Color32::from_gray(180)
+                        };
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(line).size(11.0).color(color).monospace(),
+                            )
+                            .wrap(),
+                        );
+                    }
+                });
+        });
 }
