@@ -2350,6 +2350,58 @@ impl Editor {
                     });
                 }
 
+                // ── Right-click context menu ──────────────────────────────────
+                response.context_menu(|ui| {
+                    let has_sel = self.cursor.has_selection();
+
+                    if ui.add_enabled(has_sel, egui::Button::new("Cut")).clicked() {
+                        if let Some(text) = self.selected_text() {
+                            ui.ctx().copy_text(text);
+                            self.buffer.checkpoint();
+                            self.delete_selection();
+                            self.is_modified = true;
+                            self.content_version += 1;
+                        }
+                        ui.close_menu();
+                    }
+
+                    let copy_label = if has_sel { "Copy" } else { "Copy Line" };
+                    if ui.button(copy_label).clicked() {
+                        let text = self.selected_text().unwrap_or_else(|| {
+                            let (row, _) = self.cursor.position();
+                            self.buffer.line(row) + "\n"
+                        });
+                        ui.ctx().copy_text(text);
+                        ui.close_menu();
+                    }
+
+                    ui.separator();
+
+                    if ui.button("Select All").clicked() {
+                        let last_row = self.buffer.num_lines().saturating_sub(1);
+                        let last_col = self.buffer.line_len(last_row);
+                        self.cursor.sel_anchor = Some((0, 0));
+                        self.cursor.set_position(last_row, last_col);
+                        self.cursor.sel_anchor = Some((0, 0));
+                        ui.close_menu();
+                    }
+
+                    ui.separator();
+
+                    if ui.button("Go to Definition    Ctrl+Click").clicked() {
+                        let (row, col) = self.cursor.position();
+                        if let Some(word) = get_word_at(&self.buffer, row, col) {
+                            self.go_to_definition_request = Some(word);
+                        }
+                        ui.close_menu();
+                    }
+
+                    if ui.button("Find    Ctrl+F").clicked() {
+                        self.show_find = true;
+                        ui.close_menu();
+                    }
+                });
+
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 0.0, bg_color);
 
@@ -2372,6 +2424,13 @@ impl Editor {
                 {
                     let (cur_row, cur_col) = self.cursor.position();
                     self.bracket_match = find_matching_bracket(&self.buffer, cur_row, cur_col);
+                }
+
+                // Rebuild tree-sitter highlight cache when content changes.
+                if self.highlighter.needs_update(self.content_version) {
+                    let source = self.buffer.to_string();
+                    self.highlighter
+                        .highlight_document(&source, self.content_version);
                 }
 
                 // Fold regions: recompute if dirty (on every content change)
@@ -2435,7 +2494,7 @@ impl Editor {
                         // Draw the first (header) line normally, then "⋯" placeholder
                         let preview: String = line.chars().take(60).collect();
                         let folded_count = fold_end - line_idx;
-                        let tokens = self.highlighter.tokenize_line(&preview);
+                        let tokens = self.highlighter.tokens_for_line(line_idx, &preview);
                         let mut job = egui::text::LayoutJob::default();
                         for tok in &tokens {
                             job.append(
@@ -2871,7 +2930,7 @@ impl Editor {
                     }
 
                     // Syntax-highlighted text
-                    let tokens = self.highlighter.tokenize_line(&line);
+                    let tokens = self.highlighter.tokens_for_line(line_idx, &line);
                     let mut job = egui::text::LayoutJob::default();
                     for tok in &tokens {
                         job.append(

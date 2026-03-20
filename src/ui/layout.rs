@@ -787,6 +787,9 @@ pub fn render(app: &mut WritingUnicorns, ctx: &Context) {
                 tab_ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
                 if let Some(path) = app.tab_manager.show(&mut tab_ui) {
                     app.open_file(path);
+                } else if app.tab_manager.tabs.is_empty() && app.editor.current_path.is_some() {
+                    // Last tab was closed via × — clear the editor so the welcome screen appears.
+                    app.load_active_tab();
                 }
                 // Keep settings_panel.open in sync with whether a settings tab exists
                 app.settings_panel.open = app.tab_manager.tabs.iter().any(|t| t.is_settings);

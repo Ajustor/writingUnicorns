@@ -118,7 +118,7 @@ impl TabManager {
                 } else {
                     egui::Color32::from_rgb(45, 45, 45)
                 };
-                egui::Frame::new().fill(bg).show(ui, |ui| {
+                let frame_resp = egui::Frame::new().fill(bg).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if *tab_is_settings {
                             ui.label(
@@ -153,6 +153,16 @@ impl TabManager {
                         }
                     });
                 });
+                // Middle-click closes the tab.
+                let tab_id_copy = *tab_id;
+                if ui.input(|i| {
+                    i.pointer.button_released(egui::PointerButton::Middle)
+                        && i.pointer
+                            .hover_pos()
+                            .is_some_and(|p| frame_resp.response.rect.contains(p))
+                }) {
+                    to_close = Some(tab_id_copy);
+                }
                 ui.separator();
             }
         });

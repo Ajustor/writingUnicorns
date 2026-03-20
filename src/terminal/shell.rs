@@ -7,7 +7,11 @@ pub(super) fn resolve_shell() -> (String, Vec<String>) {
         if ps.exists() {
             return (
                 "powershell.exe".to_string(),
-                vec!["powershell.exe".to_string(), "-NoExit".to_string()],
+                vec![
+                    "powershell.exe".to_string(),
+                    "-NoExit".to_string(),
+                    "-NoProfile".to_string(),
+                ],
             );
         }
         (

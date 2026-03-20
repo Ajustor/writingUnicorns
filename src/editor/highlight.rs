@@ -1,3 +1,7 @@
+use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent};
+
+// ── Token types ───────────────────────────────────────────────────────────────
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TokenKind {
     Keyword,
@@ -8,10 +12,10 @@ pub enum TokenKind {
     Function,
     Macro,
     Normal,
-    Class,     // teal, for struct/enum/trait/class names (starts with uppercase)
-    TypeParam, // lighter teal, for single-letter generic type params like T, U
-    Operator,  // light gray/white for operators (kept separate from Normal)
-    Property,  // light blue for struct fields / object properties after `.`
+    Class,     // teal — struct/enum/trait/class names (upper-case identifiers)
+    TypeParam, // lighter teal — single-letter generics like T, U
+    Operator,
+    Property,
 }
 
 impl TokenKind {
@@ -39,51 +43,320 @@ pub struct Token {
     pub kind: TokenKind,
 }
 
+// ── Tree-sitter highlight name → TokenKind mapping ───────────────────────────
+
+/// The ordered list of capture names recognised by our renderer.
+/// Order matters: tree-sitter-highlight resolves captures hierarchically
+/// (e.g. "keyword.function" falls back to "keyword" if not listed).
+const HIGHLIGHT_NAMES: &[&str] = &[
+    "attribute",             // 0  → Macro  (#[derive], decorators)
+    "comment",               // 1  → Comment
+    "comment.documentation", // 2 → Comment
+    "constant",              // 3  → Keyword (true / false / nil)
+    "constant.builtin",      // 4  → Keyword
+    "constructor",           // 5  → Class
+    "function",              // 6  → Function
+    "function.builtin",      // 7  → Function
+    "function.macro",        // 8  → Macro
+    "function.method",       // 9  → Function
+    "keyword",               // 10 → Keyword
+    "keyword.function",      // 11 → Keyword
+    "keyword.operator",      // 12 → Operator
+    "keyword.return",        // 13 → Keyword
+    "keyword.storage",       // 14 → Keyword
+    "label",                 // 15 → Normal
+    "number",                // 16 → Number
+    "operator",              // 17 → Operator
+    "property",              // 18 → Property
+    "punctuation",           // 19 → Normal
+    "punctuation.bracket",   // 20 → Normal
+    "punctuation.delimiter", // 21 → Normal
+    "string",                // 22 → String
+    "string.escape",         // 23 → String
+    "string.special",        // 24 → String
+    "type",                  // 25 → KeywordType
+    "type.builtin",          // 26 → KeywordType
+    "variable",              // 27 → Normal
+    "variable.builtin",      // 28 → Keyword  (self / this / super)
+    "variable.parameter",    // 29 → Normal
+];
+
+fn capture_idx_to_kind(idx: usize) -> TokenKind {
+    match idx {
+        0 => TokenKind::Macro,
+        1 | 2 => TokenKind::Comment,
+        3 | 4 => TokenKind::Keyword,
+        5 => TokenKind::Class,
+        6..=9 => TokenKind::Function,
+        10 | 11 | 13 | 14 => TokenKind::Keyword,
+        12 | 17 => TokenKind::Operator,
+        15 => TokenKind::Normal,
+        16 => TokenKind::Number,
+        18 => TokenKind::Property,
+        19..=21 => TokenKind::Normal,
+        22..=24 => TokenKind::String,
+        25 | 26 => TokenKind::KeywordType,
+        27 | 29 => TokenKind::Normal,
+        28 => TokenKind::Keyword,
+        _ => TokenKind::Normal,
+    }
+}
+
+/// Normalise an extension to its "primary" tree-sitter language key.
+fn primary_lang(lang: &str) -> &str {
+    match lang {
+        "jsx" | "mjs" | "cjs" => "js",
+        _ => lang,
+    }
+}
+
+// ── Thread-local TS highlighter (reused across frames) ────────────────────────
+
+thread_local! {
+    static TS: std::cell::RefCell<tree_sitter_highlight::Highlighter> =
+        std::cell::RefCell::new(tree_sitter_highlight::Highlighter::new());
+}
+
+// ── Highlighter ───────────────────────────────────────────────────────────────
+
 pub struct Highlighter {
     pub language: String,
+    /// Pre-computed token list per line, rebuilt when `content_version` changes.
+    line_tokens: Vec<Vec<Token>>,
+    /// The `content_version` for which `line_tokens` was last computed.
+    last_version: i32,
+    /// Tree-sitter configurations, keyed by primary language extension.
+    configs: std::collections::HashMap<String, HighlightConfiguration>,
 }
 
 impl Highlighter {
     pub fn new() -> Self {
+        let mut configs = std::collections::HashMap::new();
+
+        try_add_config(
+            &mut configs,
+            "rs",
+            tree_sitter_rust::LANGUAGE.into(),
+            tree_sitter_rust::HIGHLIGHTS_QUERY,
+            tree_sitter_rust::INJECTIONS_QUERY,
+            "",
+        );
+
+        try_add_config(
+            &mut configs,
+            "js",
+            tree_sitter_javascript::LANGUAGE.into(),
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+            tree_sitter_javascript::INJECTIONS_QUERY,
+            tree_sitter_javascript::LOCALS_QUERY,
+        );
+
+        try_add_config(
+            &mut configs,
+            "py",
+            tree_sitter_python::LANGUAGE.into(),
+            tree_sitter_python::HIGHLIGHTS_QUERY,
+            "",
+            "",
+        );
+
         Self {
             language: String::new(),
+            line_tokens: Vec::new(),
+            last_version: -1,
+            configs,
         }
     }
 
     pub fn set_language(&mut self, ext: &str) {
-        self.language = ext.to_lowercase();
+        let new_lang = ext.to_lowercase();
+        if self.language != new_lang {
+            self.language = new_lang;
+            self.last_version = -1; // force re-highlight on next frame
+            self.line_tokens.clear();
+        }
     }
 
     pub fn set_language_from_filename(&mut self, filename: &str) {
         let lower = filename.to_lowercase();
-        // Special filenames without extension
         if lower == "dockerfile" || lower.starts_with("dockerfile.") {
-            self.language = "dockerfile".to_string();
+            self.set_language("dockerfile");
             return;
         }
         if lower == "makefile" || lower == "gnumakefile" {
-            self.language = "makefile".to_string();
+            self.set_language("makefile");
             return;
         }
-        // Use extension
         let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-        self.language = ext;
+        self.set_language(&ext);
     }
 
-    pub fn tokenize_line(&self, line: &str) -> Vec<Token> {
-        match self.language.as_str() {
-            "rs" => tokenize_rust(line),
-            "js" | "ts" | "jsx" | "tsx" | "mjs" => tokenize_js_ts(line),
-            "py" => tokenize_python(line),
-            "json" => tokenize_json(line),
-            "toml" => tokenize_toml(line),
-            "sh" | "bash" | "zsh" => tokenize_shell(line),
-            "dockerfile" => tokenize_dockerfile(line),
-            _ => vec![Token {
-                text: line.to_string(),
-                kind: TokenKind::Normal,
-            }],
+    /// Returns true when the cached tokens are stale and need rebuilding.
+    pub fn needs_update(&self, version: i32) -> bool {
+        version != self.last_version
+    }
+
+    /// Rebuild the per-line token cache from `source`.
+    /// No-op if `version` matches the last-computed version.
+    pub fn highlight_document(&mut self, source: &str, version: i32) {
+        if version == self.last_version {
+            return;
         }
+        self.last_version = version;
+
+        let primary = primary_lang(&self.language).to_string();
+        if let Some(config) = self.configs.get(&primary) {
+            match ts_highlight(config, source) {
+                Ok(spans) => {
+                    self.line_tokens = spans;
+                    return;
+                }
+                Err(e) => {
+                    log::debug!("tree-sitter highlight error for {}: {e:?}", self.language);
+                }
+            }
+        }
+
+        // Regex fallback (unsupported languages, or TS parse error)
+        let lang = self.language.clone();
+        self.line_tokens = source
+            .lines()
+            .map(|line| tokenize_line_regex(&lang, line))
+            .collect();
+    }
+
+    /// Return tokens for `line_idx`, falling back to on-the-fly regex if the
+    /// cache doesn't cover that line.
+    pub fn tokens_for_line(&self, line_idx: usize, line_text: &str) -> Vec<Token> {
+        match self.line_tokens.get(line_idx) {
+            Some(toks) if !toks.is_empty() => toks.clone(),
+            _ => self.tokenize_line(line_text),
+        }
+    }
+
+    /// Single-line regex tokeniser kept for backward-compat (plugins, hover,
+    /// folded preview when the tree-sitter cache isn't available).
+    pub fn tokenize_line(&self, line: &str) -> Vec<Token> {
+        tokenize_line_regex(&self.language, line)
+    }
+}
+
+// ── Tree-sitter highlight engine ─────────────────────────────────────────────
+
+fn try_add_config(
+    map: &mut std::collections::HashMap<String, HighlightConfiguration>,
+    key: &str,
+    language: tree_sitter::Language,
+    highlights: &str,
+    injections: &str,
+    locals: &str,
+) {
+    match HighlightConfiguration::new(language, key, highlights, injections, locals) {
+        Ok(mut cfg) => {
+            cfg.configure(HIGHLIGHT_NAMES);
+            map.insert(key.to_string(), cfg);
+        }
+        Err(e) => log::warn!("Failed to build tree-sitter config for {key}: {e:?}"),
+    }
+}
+
+/// Run tree-sitter-highlight on `source` and return per-line token vectors.
+fn ts_highlight(
+    config: &HighlightConfiguration,
+    source: &str,
+) -> Result<Vec<Vec<Token>>, tree_sitter_highlight::Error> {
+    let source_bytes = source.as_bytes();
+    let num_lines = source.lines().count().max(1);
+    let mut result: Vec<Vec<Token>> = vec![Vec::new(); num_lines];
+
+    // Build a lookup table: byte offset → line index.
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(source_bytes.iter().enumerate().filter_map(|(i, &b)| {
+            if b == b'\n' {
+                Some(i + 1)
+            } else {
+                None
+            }
+        }))
+        .collect();
+
+    // Collect all highlight events before releasing the thread-local borrow.
+    let events: Vec<HighlightEvent> = TS.with(|cell| {
+        let mut hl = cell.borrow_mut();
+        let result = hl
+            .highlight(config, source_bytes, None, |_| None)?
+            .collect::<Result<Vec<_>, _>>();
+        result
+    })?;
+
+    // Replay events to build per-line token lists.
+    let mut kind_stack: Vec<TokenKind> = Vec::new();
+
+    for event in events {
+        match event {
+            HighlightEvent::HighlightStart(h) => {
+                kind_stack.push(capture_idx_to_kind(h.0));
+            }
+            HighlightEvent::HighlightEnd => {
+                kind_stack.pop();
+            }
+            HighlightEvent::Source { start, end } => {
+                if start >= end {
+                    continue;
+                }
+                let kind = kind_stack.last().copied().unwrap_or(TokenKind::Normal);
+                let text = match source.get(start..end) {
+                    Some(t) => t,
+                    None => continue,
+                };
+
+                // The span may cover multiple lines — split it.
+                let start_line = line_starts
+                    .partition_point(|&s| s <= start)
+                    .saturating_sub(1);
+                let mut line_idx = start_line;
+
+                for piece in text.split('\n') {
+                    if line_idx < result.len() && !piece.is_empty() {
+                        result[line_idx].push(Token {
+                            text: piece.to_string(),
+                            kind,
+                        });
+                    }
+                    line_idx += 1;
+                }
+            }
+        }
+    }
+
+    // Any line still empty gets its raw text as a single Normal token.
+    for (tokens, line_text) in result.iter_mut().zip(source.lines()) {
+        if tokens.is_empty() && !line_text.is_empty() {
+            tokens.push(Token {
+                text: line_text.to_string(),
+                kind: TokenKind::Normal,
+            });
+        }
+    }
+
+    Ok(result)
+}
+
+// ── Regex-based fallback tokenisers ──────────────────────────────────────────
+
+fn tokenize_line_regex(lang: &str, line: &str) -> Vec<Token> {
+    match lang {
+        "rs" => tokenize_rust(line),
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" => tokenize_js_ts(line),
+        "py" => tokenize_python(line),
+        "json" => tokenize_json(line),
+        "toml" => tokenize_toml(line),
+        "sh" | "bash" | "zsh" => tokenize_shell(line),
+        "dockerfile" => tokenize_dockerfile(line),
+        _ => vec![Token {
+            text: line.to_string(),
+            kind: TokenKind::Normal,
+        }],
     }
 }
 
@@ -211,7 +484,6 @@ fn generic_tokenize(
     tokens
 }
 
-/// Convert a char index into a byte offset for string slicing.
 fn char_byte_offset(chars: &[char], char_idx: usize) -> usize {
     chars[..char_idx].iter().map(|c| c.len_utf8()).sum()
 }
@@ -240,7 +512,6 @@ pub fn tokenize_rust(line: &str) -> Vec<Token> {
             "Arc", "Rc", "Mutex", "HashMap", "HashSet", "BTreeMap", "BTreeSet",
         ],
     );
-    // Mark macro calls: word followed by '!'
     let src_chars: Vec<char> = line.chars().collect();
     let mut col = 0usize;
     for tok in &mut tokens {
@@ -452,14 +723,12 @@ pub fn tokenize_shell(line: &str) -> Vec<Token> {
 
 pub fn tokenize_dockerfile(line: &str) -> Vec<Token> {
     let trimmed = line.trim_start();
-    // Comments
     if trimmed.starts_with('#') {
         return vec![Token {
             text: line.to_string(),
             kind: TokenKind::Comment,
         }];
     }
-    // Dockerfile instructions are at line start (may have leading spaces in multi-stage)
     let instructions = [
         "FROM",
         "RUN",
@@ -480,7 +749,6 @@ pub fn tokenize_dockerfile(line: &str) -> Vec<Token> {
         "SHELL",
         "MAINTAINER",
     ];
-    // Check if line starts with a known instruction
     let upper = trimmed.to_uppercase();
     for instr in &instructions {
         if upper == *instr
@@ -488,7 +756,6 @@ pub fn tokenize_dockerfile(line: &str) -> Vec<Token> {
             || upper.starts_with(&format!("{}\t", instr))
         {
             let instr_len = instr.len();
-            // Find leading whitespace length
             let leading = line.len() - trimmed.len();
             let mut tokens = Vec::new();
             if leading > 0 {
@@ -503,18 +770,16 @@ pub fn tokenize_dockerfile(line: &str) -> Vec<Token> {
             });
             let rest = &line[leading + instr_len..];
             if !rest.is_empty() {
-                // Highlight strings in the rest
                 let rest_tokens = generic_tokenize(rest, "#", &['"', '\''], &["AS", "as"], &[]);
                 tokens.extend(rest_tokens);
             }
             return tokens;
         }
     }
-    // Continuation lines (RUN \ multiline) — treat as shell-like
     generic_tokenize(line, "#", &['"', '\''], &["AS", "as", "true", "false"], &[])
 }
 
-/// Returns all keywords (control flow + types) for the given file extension / language identifier.
+/// Returns all keywords for a given language (used by autocomplete).
 pub fn keywords_for_language(lang: &str) -> &'static [&'static str] {
     match lang {
         "rs" => &[
