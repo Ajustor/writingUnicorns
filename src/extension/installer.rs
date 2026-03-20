@@ -314,7 +314,10 @@ fn single_git_install_inner(
     match build_result {
         Ok(out) if out.status.success() => {}
         Ok(out) => {
-            let err: String = String::from_utf8_lossy(&out.stderr).chars().take(400).collect();
+            let err: String = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(400)
+                .collect();
             let _ = tx.send(WorkspaceStatus::Failed(format!("Build failed:\n{err}")));
             return;
         }
@@ -343,7 +346,10 @@ fn single_git_install_inner(
     }
     let release_dir = dir.join("target").join("release");
     if let Some(lib_file) = find_lib_file(&release_dir) {
-        if let Err(e) = std::fs::copy(&lib_file, dest.join(lib_file.file_name().unwrap_or_default())) {
+        if let Err(e) = std::fs::copy(
+            &lib_file,
+            dest.join(lib_file.file_name().unwrap_or_default()),
+        ) {
             let _ = tx.send(WorkspaceStatus::Failed(format!("Copy lib: {e}")));
             return;
         }
@@ -364,7 +370,10 @@ fn single_git_install_inner(
             step,
         });
     });
-    let _ = tx.send(WorkspaceStatus::Done { installed: 1, total: 1 });
+    let _ = tx.send(WorkspaceStatus::Done {
+        installed: 1,
+        total: 1,
+    });
 }
 
 /// Parse `[workspace].members` from a Cargo.toml string.

@@ -741,7 +741,11 @@ fn workspace_status_to_log(status: &WorkspaceStatus) -> String {
     match status {
         WorkspaceStatus::Cloning => "🔄 Cloning repository…".to_string(),
         WorkspaceStatus::Building => "⚙ Building workspace…".to_string(),
-        WorkspaceStatus::Installing { current, done, total } => {
+        WorkspaceStatus::Installing {
+            current,
+            done,
+            total,
+        } => {
             format!("📦 [{}/{total}] Installing {current}…", done + 1)
         }
         WorkspaceStatus::InstallingDep { module, step } => {
@@ -788,7 +792,10 @@ fn show_log_area(ui: &mut egui::Ui, lines: &[String], log_width: f32, id: &str) 
                         };
                         ui.add(
                             egui::Label::new(
-                                egui::RichText::new(line).size(11.0).color(color).monospace(),
+                                egui::RichText::new(line)
+                                    .size(11.0)
+                                    .color(color)
+                                    .monospace(),
                             )
                             .wrap(),
                         );

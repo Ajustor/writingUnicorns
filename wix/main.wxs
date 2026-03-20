@@ -12,14 +12,14 @@
     light.exe  -ext WixUIExtension -out writing-unicorns-setup.msi wix\main.wixobj
 
   Or via cargo-wix:
-    cargo wix --no-build --nocapture
+    cargo wix -no-build -nocapture
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
   <Product Id="*"
            Name="Writing Unicorns"
            Language="1033"
-           Version="0.2.0"
+           Version="0.4.0"
            Manufacturer="Writing Unicorns"
            UpgradeCode="{B7E3F4A2-9C5D-4F8B-A1E3-D5C7B9F2E4A6}">
 
